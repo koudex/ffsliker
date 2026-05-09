@@ -22,7 +22,6 @@ function validateEnv() {
     }
   }
 
-  // Validate encryption key length
   if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length !== 64) {
     console.error('❌ ENCRYPTION_KEY must be 64-character hex string (32 bytes)');
     process.exit(1);
@@ -35,7 +34,6 @@ validateEnv();
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
 const IV_LENGTH = 16;
 
-// Helper function to ensure proper key length
 function getValidKey(key) {
   if (key.length === 64 && /^[0-9a-f]+$/i.test(key)) {
     return Buffer.from(key, 'hex');
@@ -43,7 +41,6 @@ function getValidKey(key) {
   return crypto.createHash('sha256').update(key).digest();
 }
 
-// Encryption functions
 function encrypt(text) {
   try {
     const iv = crypto.randomBytes(IV_LENGTH);
@@ -74,7 +71,6 @@ function decrypt(text) {
   }
 }
 
-// Generate persistent session token
 function generateSessionToken(email, deviceId) {
   const payload = {
     email,
@@ -95,9 +91,12 @@ function verifySessionToken(token) {
   }
 }
 
-// Hash password for storage
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+function randHex(length) {
+  return Array.from({ length: length }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
 }
 
 // Middleware
@@ -108,7 +107,6 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static('public'));
 
-// Session configuration
 app.use(session({
   secret: process.env.SESSION_SECRET || crypto.randomBytes(64).toString('hex'),
   resave: false,
@@ -129,7 +127,6 @@ app.use(session({
   }
 }));
 
-// Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100
@@ -171,12 +168,12 @@ connectDB();
 
 // Models 
 const UserSchema = new mongoose.Schema({
-  email: { type: String, unique: true, required: true }, // App login credential
-  passwordHash: { type: String, required: true }, // Hashed app password
-  facebookId: { type: String, unique: true, sparse: true }, // Facebook user ID
+  email: { type: String, unique: true, required: true },
+  passwordHash: { type: String, required: true },
+  facebookId: { type: String, unique: true, sparse: true },
   name: String,
-  accessToken: { type: String }, // Encrypted Facebook access token
-  cookies: { type: String }, // Encrypted Facebook cookies
+  accessToken: { type: String },
+  cookies: { type: String },
   deviceId: String,
   machineId: String,
   sessionTokens: [{ 
@@ -195,7 +192,8 @@ const User = mongoose.model('User', UserSchema);
 const Cooldown = mongoose.model('Cooldown', new mongoose.Schema({
   facebookId: String,
   lastFollow: Date,
-  lastReaction: Date
+  lastReaction: Date,
+  lastShare: Date
 }));
 
 const Liker = mongoose.model('Liker', new mongoose.Schema({
@@ -228,7 +226,6 @@ const checkCooldown = async (facebookId, toolType) => {
   return false;
 };
 
-// Facebook Post ID Extractor (Supports Profiles/Pages/Groups)
 async function extractPostID(url) {
   const cleanUrl = url.split(/[?#]/)[0].replace(/\/$/, '');
   
@@ -289,38 +286,29 @@ async function extractID(url) {
   }
 }
 
-function generateRandomHex(length) {
-  const chars = '0123456789abcdef';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-// Validate Facebook session (check if token still works)
+// Validate Facebook session
 async function validateFacebookSession(accessToken, cookies) {
   try {
     const response = await axios.get('https://graph.facebook.com/me?fields=id,name', {
       params: { access_token: accessToken },
-      headers: { Cookie: cookies }
+      headers: { Cookie: cookies, 'User-Agent': 'Mozilla/5.0' },
+      timeout: 10000
     });
     return response.data;
   } catch (error) {
-    console.error('Facebook session validation failed:', error.message);
     return null;
   }
 }
 
-// Perform Facebook login once and store credentials
-async function performFacebookLogin(email, password) {
+// Facebook login function - exactly like reference server.js
+async function performFacebookLogin(login, password) {
   const deviceId = uuidv4();
-  const adid = generateRandomHex(16);
-  const machineId = generateRandomHex(22);
-
-  const apiParams = {
+  const adid = randHex(16);
+  const machineId = randHex(22);
+  
+  const params = new URLSearchParams({
     adid: adid,
-    email: email,
+    email: login,
     password: password,
     format: 'json',
     device_id: deviceId,
@@ -343,51 +331,50 @@ async function performFacebookLogin(email, password) {
     fb_api_caller_class: 'com.facebook.account.login.protocol.Fb4aAuthHandler',
     api_key: '882a8490361da98702bf97a021ddc14d',
     access_token: '350685531728|62f8ce9f74b12f84c123cc23437a4a32'
-  };
-
-  const apiUrl = `https://b-api.facebook.com/method/auth.login?${querystring.stringify(apiParams)}`;
-
-  const apiResponse = await axios.get(apiUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      'X-FB-Friendly-Name': 'authenticate',
-      'X-FB-Connection-Type': 'MOBILE.LTE',
-      'X-FB-Connection-Quality': 'EXCELLENT'
-    }
   });
 
-  if (!apiResponse.data.session_cookies) {
-    throw new Error(apiResponse.data.error_msg || 'Failed to get session cookies');
-  }
-
-  const cookieString = apiResponse.data.session_cookies
-    .map(cookie => `${cookie.name}=${cookie.value}`)
-    .join('; ');
-    
-  const userName = await axios.get(
-    `https://graph.facebook.com/me?fields=name&access_token=${apiResponse.data.access_token}`,
+  const fbRes = await axios.get(
+    `https://b-api.facebook.com/method/auth.login?${params}`,
     {
       headers: {
-        'Cookie': cookieString,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 15000
+    }
+  );
+
+  if (!fbRes.data.session_cookies) {
+    throw new Error(fbRes.data.error_msg || 'Failed to authenticate with Facebook');
+  }
+
+  const cookies = fbRes.data.session_cookies
+    .map(c => `${c.name}=${c.value}`)
+    .join('; ');
+
+  const profile = await axios.get(
+    `https://graph.facebook.com/me?fields=name&access_token=${fbRes.data.access_token}`,
+    {
+      headers: {
+        'Cookie': cookies,
+        'User-Agent': 'Mozilla/5.0'
+      },
+      timeout: 10000
     }
   );
 
   return {
-    facebookId: apiResponse.data.uid,
-    name: userName.data.name || 'Facebook User',
-    accessToken: apiResponse.data.access_token,
-    cookies: cookieString,
-    deviceId,
-    machineId
+    facebookId: fbRes.data.uid,
+    name: profile.data.name || 'Facebook User',
+    accessToken: fbRes.data.access_token,
+    cookies: cookies,
+    deviceId: deviceId,
+    machineId: machineId
   };
 }
 
 // Authentication middleware
 const authenticate = async (req, res, next) => {
   try {
-    // Check server-side session first
     if (req.session.email) {
       const user = await User.findOne({ email: req.session.email });
       if (user && user.isActive) {
@@ -396,7 +383,6 @@ const authenticate = async (req, res, next) => {
       }
     }
     
-    // Check persistent token from header
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const token = authHeader.split(' ')[1];
@@ -438,7 +424,6 @@ app.get('/api/session', authenticate, (req, res) => {
   });
 });
 
-// Get all saved accounts from database
 app.post('/api/accounts/list', async (req, res) => {
   try {
     const users = await User.find({ 
@@ -461,7 +446,6 @@ app.post('/api/accounts/list', async (req, res) => {
   }
 });
 
-// Switch to a saved account
 app.post('/api/accounts/switch', async (req, res) => {
   try {
     const { email, sessionToken } = req.body;
@@ -487,10 +471,8 @@ app.post('/api/accounts/switch', async (req, res) => {
 
     req.session.email = user.email;
     
-    // Generate new session token for this device
     const newSessionToken = generateSessionToken(user.email, req.headers['user-agent'] || 'unknown');
     
-    // Add new token to user's session tokens
     user.sessionTokens.push({
       token: newSessionToken,
       deviceId: req.headers['user-agent'] || 'unknown',
@@ -516,7 +498,7 @@ app.post('/api/accounts/switch', async (req, res) => {
   }
 });
 
-// Login endpoint - uses stored Facebook session if exists, otherwise performs Facebook login
+// FIXED LOGIN ENDPOINT - Works exactly like reference server.js
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -528,31 +510,27 @@ app.post('/api/login', async (req, res) => {
       });
     }
 
-    // Check if user exists in database
+    // Check if user exists in database by app email
     let user = await User.findOne({ email });
     
     if (user) {
-      // Verify app password
+      // RETURNING USER - Verify app password
       if (user.passwordHash !== hashPassword(password)) {
         return res.status(401).json({
           success: false,
-          error: 'Invalid app credentials'
+          error: 'Invalid credentials'
         });
       }
       
-      // User exists - check if we have stored Facebook session
+      // Check if we have stored Facebook session
       if (user.accessToken && user.cookies) {
-        // Validate stored Facebook session is still valid
         const fbValidation = await validateFacebookSession(user.accessToken, user.cookies);
         
         if (fbValidation) {
-          // Stored Facebook session is still valid
-          console.log(`✅ Using stored Facebook session for ${email}`);
+          console.log(`✅ Returning user ${email} - using stored Facebook session`);
           
-          // Generate new session token
           const sessionToken = generateSessionToken(user.email, req.headers['user-agent'] || 'unknown');
           
-          // Add token to user's session tokens
           user.sessionTokens.push({
             token: sessionToken,
             deviceId: req.headers['user-agent'] || 'unknown',
@@ -573,45 +551,131 @@ app.post('/api/login', async (req, res) => {
             sessionToken: sessionToken
           });
         } else {
-          console.log(`⚠️ Stored Facebook session expired for ${email}, attempting to refresh with same credentials...`);
-          
-          // Try to refresh - but we don't have the original Facebook password stored
-          // User needs to login to Facebook again with their credentials
+          console.log(`⚠️ Stored Facebook session expired for ${email}`);
           return res.status(401).json({
             success: false,
             error: 'Facebook session expired. Please login again with your Facebook credentials.',
             needsFacebookReauth: true
           });
         }
-      } else {
-        // User exists but no Facebook session stored (shouldn't happen normally)
-        return res.status(401).json({
-          success: false,
-          error: 'Account not properly setup. Please login with Facebook credentials.',
-          needsFacebookReauth: true
-        });
       }
     }
     
-    // NEW USER: First time login - need Facebook credentials
-    // The email/password provided are actually the Facebook credentials for first time
-    console.log(`🆕 New user, performing initial Facebook login for ${email}`);
+    // NEW USER OR EXPIRED SESSION - Perform Facebook login (exactly like reference server.js)
+    console.log(`🆕 Performing Facebook login for: ${email}`);
     
     try {
-      const fbData = await performFacebookLogin(email, password);
+      // This is the exact same call as reference server.js
+      const deviceId = uuidv4();
+      const adid = randHex(16);
+      const machineId = randHex(22);
       
-      // Create new user with app credentials (same as Facebook credentials for simplicity)
+      const params = new URLSearchParams({
+        adid: adid,
+        email: email,
+        password: password,
+        format: 'json',
+        device_id: deviceId,
+        cpl: 'true',
+        family_device_id: deviceId,
+        locale: 'en_US',
+        client_country_code: 'US',
+        credentials_type: 'device_based_login_password',
+        generate_session_cookies: '1',
+        generate_analytics_claim: '1',
+        generate_machine_id: '1',
+        currently_logged_in_userid: '0',
+        irisSeqID: '1',
+        try_num: '1',
+        enroll_misauth: 'false',
+        meta_inf_fbmeta: 'NO_FILE',
+        source: 'login',
+        machine_id: machineId,
+        fb_api_req_friendly_name: 'authenticate',
+        fb_api_caller_class: 'com.facebook.account.login.protocol.Fb4aAuthHandler',
+        api_key: '882a8490361da98702bf97a021ddc14d',
+        access_token: '350685531728|62f8ce9f74b12f84c123cc23437a4a32'
+      });
+
+      const fbRes = await axios.get(
+        `https://b-api.facebook.com/method/auth.login?${params}`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          timeout: 15000
+        }
+      );
+
+      if (!fbRes.data.session_cookies) {
+        throw new Error(fbRes.data.error_msg || 'Failed to authenticate with Facebook');
+      }
+
+      const cookies = fbRes.data.session_cookies
+        .map(c => `${c.name}=${c.value}`)
+        .join('; ');
+
+      const profile = await axios.get(
+        `https://graph.facebook.com/me?fields=name&access_token=${fbRes.data.access_token}`,
+        {
+          headers: {
+            'Cookie': cookies,
+            'User-Agent': 'Mozilla/5.0'
+          },
+          timeout: 10000
+        }
+      );
+
+      const facebookId = fbRes.data.uid;
+      const name = profile.data.name || 'Facebook User';
+      const accessToken = fbRes.data.access_token;
+
+      // Check if user already exists by facebookId (in case different email was used)
+      let existingUser = await User.findOne({ facebookId });
+      
+      if (existingUser) {
+        // Update existing user with new credentials
+        existingUser.email = email;
+        existingUser.passwordHash = hashPassword(password);
+        existingUser.accessToken = accessToken;
+        existingUser.cookies = cookies;
+        existingUser.name = name;
+        existingUser.lastLogin = new Date();
+        
+        const sessionToken = generateSessionToken(email, req.headers['user-agent'] || 'unknown');
+        existingUser.sessionTokens.push({
+          token: sessionToken,
+          deviceId: req.headers['user-agent'] || 'unknown',
+          createdAt: new Date()
+        });
+        
+        await existingUser.save();
+        
+        req.session.email = existingUser.email;
+        
+        return res.json({
+          success: true,
+          userId: existingUser.facebookId,
+          email: existingUser.email,
+          name: existingUser.name,
+          accessToken: existingUser.accessToken,
+          cookies: existingUser.cookies,
+          sessionToken: sessionToken
+        });
+      }
+      
+      // Create new user
       const sessionToken = generateSessionToken(email, req.headers['user-agent'] || 'unknown');
       
-      user = new User({
+      const newUser = new User({
         email: email,
-        passwordHash: hashPassword(password), // Store hashed app password
-        name: fbData.name,
-        accessToken: fbData.accessToken,
-        cookies: fbData.cookies,
-        facebookId: fbData.facebookId,
-        deviceId: fbData.deviceId,
-        machineId: fbData.machineId,
+        passwordHash: hashPassword(password),
+        name: name,
+        accessToken: accessToken,
+        cookies: cookies,
+        facebookId: facebookId,
+        deviceId: deviceId,
+        machineId: machineId,
         sessionTokens: [{
           token: sessionToken,
           deviceId: req.headers['user-agent'] || 'unknown',
@@ -621,54 +685,52 @@ app.post('/api/login', async (req, res) => {
         lastLogin: new Date(),
         lastFacebookCheck: new Date()
       });
-      await user.save();
+      await newUser.save();
       
       // Also save as a liker
       await Liker.findOneAndUpdate(
-        { facebookId: user.facebookId },
+        { facebookId: facebookId },
         {
-          facebookId: user.facebookId,
-          name: user.name,
-          accessToken: user.accessToken,
-          cookies: user.cookies,
+          facebookId: facebookId,
+          name: name,
+          accessToken: accessToken,
+          cookies: cookies,
           active: true
         },
         { upsert: true, new: true }
       );
       
-      req.session.email = user.email;
+      req.session.email = newUser.email;
+      
+      console.log(`✅ New user created: ${name} (${facebookId})`);
       
       res.json({
         success: true,
-        userId: user.facebookId,
-        email: user.email,
-        name: user.name,
-        accessToken: user.accessToken,
-        cookies: user.cookies,
+        userId: newUser.facebookId,
+        email: newUser.email,
+        name: newUser.name,
+        accessToken: newUser.accessToken,
+        cookies: newUser.cookies,
         sessionToken: sessionToken
       });
       
     } catch (fbError) {
-      console.error('Facebook login failed:', fbError.message);
+      console.error('Facebook login failed:', fbError.response?.data || fbError.message);
       return res.status(401).json({
         success: false,
-        error: 'Facebook login failed. Please check your Facebook credentials.'
+        error: fbError.response?.data?.error_msg || fbError.message || 'Facebook login failed. Please check your credentials.'
       });
     }
     
   } catch (error) {
-    console.error('Login error:', error.response?.data || error.message);
+    console.error('Login error:', error);
     return res.status(500).json({
       success: false,
-      error: error.response?.data?.error?.message || 
-            error.response?.data?.error_msg || 
-            error.message ||
-            'Login failed. Please check your credentials.'
+      error: error.message || 'Login failed. Please check your credentials.'
     });
   }
 });
 
-// Re-authentication endpoint for when Facebook session expires
 app.post('/api/reauth', async (req, res) => {
   try {
     const { email, appPassword, facebookEmail, facebookPassword } = req.body;
@@ -690,17 +752,63 @@ app.post('/api/reauth', async (req, res) => {
     }
     
     // Perform fresh Facebook login
-    const fbData = await performFacebookLogin(facebookEmail, facebookPassword);
+    const deviceId = uuidv4();
+    const adid = randHex(16);
+    const machineId = randHex(22);
+    
+    const params = new URLSearchParams({
+      adid: adid,
+      email: facebookEmail,
+      password: facebookPassword,
+      format: 'json',
+      device_id: deviceId,
+      cpl: 'true',
+      family_device_id: deviceId,
+      locale: 'en_US',
+      client_country_code: 'US',
+      credentials_type: 'device_based_login_password',
+      generate_session_cookies: '1',
+      generate_analytics_claim: '1',
+      generate_machine_id: '1',
+      machine_id: machineId,
+      fb_api_req_friendly_name: 'authenticate',
+      fb_api_caller_class: 'com.facebook.account.login.protocol.Fb4aAuthHandler',
+      api_key: '882a8490361da98702bf97a021ddc14d',
+      access_token: '350685531728|62f8ce9f74b12f84c123cc23437a4a32'
+    });
+
+    const fbRes = await axios.get(
+      `https://b-api.facebook.com/method/auth.login?${params}`,
+      {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        timeout: 15000
+      }
+    );
+
+    if (!fbRes.data.session_cookies) {
+      throw new Error(fbRes.data.error_msg || 'Failed to authenticate with Facebook');
+    }
+
+    const cookies = fbRes.data.session_cookies
+      .map(c => `${c.name}=${c.value}`)
+      .join('; ');
+
+    const profile = await axios.get(
+      `https://graph.facebook.com/me?fields=name&access_token=${fbRes.data.access_token}`,
+      {
+        headers: { 'Cookie': cookies, 'User-Agent': 'Mozilla/5.0' },
+        timeout: 10000
+      }
+    );
     
     // Update stored Facebook credentials
-    user.accessToken = fbData.accessToken;
-    user.cookies = fbData.cookies;
-    user.name = fbData.name;
-    user.facebookId = fbData.facebookId;
+    user.accessToken = fbRes.data.access_token;
+    user.cookies = cookies;
+    user.name = profile.data.name || user.name;
+    user.facebookId = fbRes.data.uid;
     user.lastFacebookCheck = new Date();
     user.lastLogin = new Date();
     
-    // Generate new session token
     const sessionToken = generateSessionToken(user.email, req.headers['user-agent'] || 'unknown');
     user.sessionTokens.push({
       token: sessionToken,
@@ -710,7 +818,6 @@ app.post('/api/reauth', async (req, res) => {
     
     await user.save();
     
-    // Update liker
     await Liker.findOneAndUpdate(
       { facebookId: user.facebookId },
       {
@@ -744,7 +851,6 @@ app.post('/api/reauth', async (req, res) => {
   }
 });
 
-// Logout endpoint - removes session token but keeps user data
 app.post('/api/logout', authenticate, async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -817,20 +923,20 @@ app.post('/api/follow', authenticate, async (req, res) => {
         const headers = {
           'Authorization': `Bearer ${liker.accessToken}`,
           'Cookie': liker.cookies,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         };
 
         const response = await axios.post(
           `https://graph.facebook.com/v18.0/${profileId}/subscribers`,
           {},
-          { headers }
+          { headers, timeout: 10000 }
         );
 
         if (response.status === 200) {
           successCount++;
         }
       } catch (error) {
-        console.error(`Follow failed for user ${liker.facebookId}:`, error.message);
+        console.error(`Follow failed:`, error.message);
       }
     });
 
@@ -899,15 +1005,16 @@ app.post('/api/reactions', authenticate, async (req, res) => {
       try {
         const headers = {
           'Cookie': liker.cookies,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0'
         };
 
         const response = await axios.post(
           `https://graph.facebook.com/v18.0/${postId}/reactions`,
-          { type },
+          { type: type.toUpperCase() },
           {
             params: { access_token: liker.accessToken },
-            headers
+            headers,
+            timeout: 10000
           }
         );
 
@@ -915,7 +1022,7 @@ app.post('/api/reactions', authenticate, async (req, res) => {
           successCount++;
         }
       } catch (error) {
-        console.error(`Reaction failed for user ${liker.facebookId}:`, error.message);
+        console.error(`Reaction failed:`, error.message);
       }
     });
 
@@ -957,6 +1064,16 @@ app.post('/api/share', authenticate, async (req, res) => {
       });
     }
 
+    const cooldown = await checkCooldown(req.user.facebookId, 'lastShare');
+    if (cooldown) {
+      return res.status(429).json({ 
+        success: false,
+        cooldown, 
+        tool: 'share',
+        message: `Please wait ${cooldown} more minutes before sharing again`
+      });
+    }
+
     let successCount = 0;
     let consecutiveFails = 0;
     const maxConsecutiveFails = 5;
@@ -971,13 +1088,13 @@ app.post('/api/share', authenticate, async (req, res) => {
           "Accept-Language": "en-US,en;q=0.9",
           "Cookie": req.user.cookies,
           "Referer": "https://www.facebook.com/",
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0'
         };
 
         const response = await axios.post(
           `https://graph.facebook.com/me/feed?link=https://m.facebook.com/${postId}&published=0&access_token=${req.user.accessToken}`,
           null,
-          { headers }
+          { headers, timeout: 10000 }
         );
 
         if (response.status === 200) {
@@ -1013,8 +1130,7 @@ app.post('/api/share', authenticate, async (req, res) => {
     console.error('Share endpoint error:', error);
     res.status(500).json({ 
       success: false,
-      error: `${error.response?.data?.error?.message || error.message}`,
-      details: error.message 
+      error: error.message
     });
   }
 });
@@ -1061,8 +1177,9 @@ app.post('/api/profile-guard', authenticate, async (req, res) => {
             access_token: req.user.accessToken
           },
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-          }
+            'User-Agent': 'Mozilla/5.0'
+          },
+          timeout: 15000
         }
       );
 
@@ -1075,16 +1192,14 @@ app.post('/api/profile-guard', authenticate, async (req, res) => {
       } else {
         return res.status(400).json({ 
           success: false,
-          error: 'Facebook API did not confirm the change',
-          details: response.data
+          error: 'Facebook API did not confirm the change'
         });
       }
     } catch (fbError) {
-      console.error('Facebook API error:', fbError.response?.data || fbError.message);
+      console.error('Facebook API error:', fbError.message);
       return res.status(500).json({ 
         success: false,
-        error: 'Failed to update profile guard with Facebook',
-        details: fbError.response?.data || fbError.message
+        error: 'Failed to update profile guard with Facebook'
       });
     }
 
@@ -1092,8 +1207,7 @@ app.post('/api/profile-guard', authenticate, async (req, res) => {
     console.error('Profile guard error:', error);
     return res.status(500).json({ 
       success: false,
-      error: 'Internal server error',
-      details: error.message
+      error: 'Internal server error'
     });
   }
 });
