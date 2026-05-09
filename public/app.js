@@ -1,3 +1,4 @@
+// ============== app.js (Updated) ==============
 window.addEventListener('load', function() {
   const loadingOverlay = document.getElementById('loadingOverlay');
   const app = document.getElementById('app');
@@ -19,7 +20,7 @@ if (publisherElement) {
   publisherElement.textContent = cleanHostname;
 }
 
-// PWA Installation logic (only once)
+// PWA Installation logic
 document.addEventListener('DOMContentLoaded', () => {
   let deferredPrompt;
   const installModal = document.getElementById('pwaInstallModal');
@@ -119,7 +120,11 @@ createApp({
       name: '',
       token: '',
       cookies: '',
-      sessionToken: ''
+      sessionToken: '',
+      identifiers: [],
+      loginEmail: '',
+      loginPhone: '',
+      loginUsername: ''
     });
     
     const savedAccounts = ref([]);
@@ -128,7 +133,7 @@ createApp({
     const needsFacebookReauth = ref(false);
     
     const loginForm = ref({
-      email: '',
+      identifier: '',  // Changed from 'email' to 'identifier'
       password: ''
     });
     
@@ -154,7 +159,21 @@ createApp({
       limit: '100'
     });
 
-    // Device identification for persistent sessions
+    // Helper function to decrypt user data from encrypted session
+    const decryptUserData = (encryptedData) => {
+      // Note: This is just storing the encrypted data.
+      // Actual decryption happens server-side.
+      // The client only stores the encrypted blob.
+      try {
+        // We don't actually decrypt on client side
+        // Just store the encrypted string
+        return encryptedData;
+      } catch (error) {
+        console.error('Error handling encrypted data:', error);
+        return null;
+      }
+    };
+
     const getDeviceToken = () => {
       let deviceToken = localStorage.getItem('deviceToken');
       if (!deviceToken) {
@@ -173,12 +192,16 @@ createApp({
     const saveSessionToLocalStorage = (sessionData) => {
       try {
         const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        sessions[sessionData.email] = {
-          email: sessionData.email,
-          name: sessionData.name,
-          facebookId: sessionData.id,
+        // Store only the encrypted data and minimal metadata
+        sessions[sessionData.encryptedData] = {
+          encryptedData: sessionData.encryptedData,
           sessionToken: sessionData.sessionToken,
-          lastLogin: new Date().toISOString()
+          lastLogin: new Date().toISOString(),
+          // Store minimal non-sensitive metadata for UI
+          metadata: {
+            name: sessionData.name,
+            id: sessionData.id
+          }
         };
         localStorage.setItem('sessions', JSON.stringify(sessions));
         updateSavedAccountsList();
@@ -187,10 +210,10 @@ createApp({
       }
     };
 
-    const removeSessionFromLocalStorage = (email) => {
+    const removeSessionFromLocalStorage = (encryptedDataKey) => {
       try {
         const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        delete sessions[email];
+        delete sessions[encryptedDataKey];
         localStorage.setItem('sessions', JSON.stringify(sessions));
         updateSavedAccountsList();
       } catch (error) {
@@ -200,7 +223,6 @@ createApp({
 
     const updateSavedAccountsList = async () => {
       try {
-        // Get accounts from localStorage only (device/browser specific)
         const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
         const accounts = Object.values(sessions).sort((a, b) => 
           new Date(b.lastLogin) - new Date(a.lastLogin)
@@ -226,7 +248,6 @@ createApp({
 
     const getProfilePictureUrl = (facebookId, accessToken = null) => {
       if (!facebookId) return '';
-      // Return proxy endpoint instead of direct Facebook URL
       return `/api/avatar/${facebookId}`;
     };
 
@@ -234,25 +255,29 @@ createApp({
       try {
         await updateSavedAccountsList();
         
-        // Check for active sessions in localStorage
         const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
         const sessionKeys = Object.keys(sessions);
         
         if (sessionKeys.length > 0) {
-          // Try the most recent session first
           const mostRecent = savedAccounts.value[0];
           if (mostRecent && mostRecent.sessionToken) {
             try {
               const response = await axios.get('/api/session', {
-                headers: { 'Authorization': 'Bearer ' + mostRecent.sessionToken }
+                headers: { 'Authorization': 'Bearer ' + mostRecent.encryptedData }
               });
               
               if (response.data.success) {
-                user.value = response.data.user;
+                // Decrypt the session data (server already did)
+                // The response contains encryptedData but we trust it
                 user.value.sessionToken = mostRecent.sessionToken;
+                user.value.encryptedData = response.data.encryptedData;
+                
+                // We need to make a separate call to get user data
+                // The server's /api/session returns encryptedData that we can use
+                await refreshUserData();
+                
                 currentPage.value = 'dashboard';
                 
-                // Show toast notification for auto-login
                 Swal.fire({
                   title: 'Welcome back!',
                   text: `Logged in as ${user.value.name}`,
@@ -267,9 +292,8 @@ createApp({
                 return;
               }
             } catch (error) {
-              // Session expired, remove from localStorage
-              if (mostRecent.email) {
-                removeSessionFromLocalStorage(mostRecent.email);
+              if (mostRecent.encryptedData) {
+                removeSessionFromLocalStorage(mostRecent.encryptedData);
               }
             }
           }
@@ -281,8 +305,30 @@ createApp({
       }
     };
 
+    const refreshUserData = async () => {
+      try {
+        if (!user.value.sessionToken) return;
+        
+        const response = await axios.get('/api/session', {
+          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
+        });
+        
+        if (response.data.success) {
+          // The server returns encrypted data that contains user info
+          // We need to store the encrypted data and extract metadata
+          user.value.encryptedData = response.data.encryptedData;
+          
+          // For display purposes, we need to extract name and id from the encrypted data
+          // Since we can't decrypt on client, we store metadata during login
+          // For now, use stored metadata
+        }
+      } catch (error) {
+        console.error('Refresh user data error:', error);
+      }
+    };
+
     const switchAccount = async (account) => {
-      if (account.email === user.value.email) {
+      if (account.encryptedData === user.value.encryptedData) {
         showAccountSwitcher.value = false;
         return;
       }
@@ -294,24 +340,24 @@ createApp({
         loadingStates.value.login = true;
         
         const response = await axios.post('/api/accounts/switch', {
-          email: account.email,
           sessionToken: account.sessionToken
         });
         
         if (response.data.success) {
-          user.value = response.data.user;
-          user.value.sessionToken = response.data.user.sessionToken;
+          user.value.encryptedData = response.data.encryptedData;
+          user.value.sessionToken = response.data.sessionToken;
+          user.value.name = account.metadata?.name || 'User';
+          user.value.id = account.metadata?.id || '';
+          
           showAccountSwitcher.value = false;
           
-          // Update last login timestamp in localStorage
           saveSessionToLocalStorage({
-            email: user.value.email,
+            encryptedData: response.data.encryptedData,
+            sessionToken: response.data.sessionToken,
             name: user.value.name,
-            id: user.value.id,
-            sessionToken: user.value.sessionToken
+            id: user.value.id
           });
           
-          // Show success toast
           Swal.fire({
             title: 'Success',
             text: `Switched to ${user.value.name}`,
@@ -339,7 +385,7 @@ createApp({
     };
 
     const loginWithSavedAccount = async (account) => {
-      if (!account.sessionToken) {
+      if (!account.sessionToken || !account.encryptedData) {
         Swal.fire({
           title: 'Error',
           text: 'Invalid session. Please login manually.',
@@ -354,21 +400,16 @@ createApp({
       
       try {
         const response = await axios.get('/api/session', {
-          headers: { 'Authorization': 'Bearer ' + account.sessionToken }
+          headers: { 'Authorization': 'Bearer ' + account.encryptedData }
         });
         
         if (response.data.success) {
-          user.value = response.data.user;
+          user.value.encryptedData = response.data.encryptedData;
           user.value.sessionToken = account.sessionToken;
-          currentPage.value = 'dashboard';
+          user.value.name = account.metadata?.name || 'User';
+          user.value.id = account.metadata?.id || '';
           
-          // Update last login
-          saveSessionToLocalStorage({
-            email: user.value.email,
-            name: user.value.name,
-            id: user.value.id,
-            sessionToken: user.value.sessionToken
-          });
+          currentPage.value = 'dashboard';
           
           Swal.fire({
             title: 'Welcome back!',
@@ -382,8 +423,7 @@ createApp({
             color: '#ffffff'
           });
         } else {
-          // Session expired, remove from localStorage
-          removeSessionFromLocalStorage(account.email);
+          removeSessionFromLocalStorage(account.encryptedData);
           Swal.fire({
             title: 'Session Expired',
             text: 'Please login again manually.',
@@ -394,7 +434,9 @@ createApp({
         }
       } catch (error) {
         console.error('Auto-login error:', error);
-        removeSessionFromLocalStorage(account.email);
+        if (account.encryptedData) {
+          removeSessionFromLocalStorage(account.encryptedData);
+        }
         Swal.fire({
           title: 'Login Failed',
           text: 'Could not login with saved account. Please login manually.',
@@ -428,26 +470,34 @@ createApp({
         loadingStates.value.login = true;
         
         const response = await axios.post('/api/login', {
-          email: loginForm.value.email,
+          identifier: loginForm.value.identifier,
           password: loginForm.value.password
         });
         
         if (response.data.success) {
-          user.value = {
-            id: response.data.userId,
-            email: response.data.email,
-            name: response.data.name || 'Facebook User',
-            token: response.data.accessToken,
-            cookies: response.data.cookies || '',
-            sessionToken: response.data.sessionToken
-          };
+          user.value.encryptedData = response.data.encryptedData;
+          user.value.sessionToken = response.data.sessionToken;
           
-          // Save session for persistent login
+          // Extract metadata from response (server can include non-sensitive info)
+          // For now, we need a separate call to get user info or server can include minimal metadata
+          // Let's make a call to get user info
+          const sessionResponse = await axios.get('/api/session', {
+            headers: { 'Authorization': 'Bearer ' + response.data.encryptedData }
+          });
+          
+          if (sessionResponse.data.success) {
+            // For display, we need to decrypt - but since we can't on client,
+            // we'll have the server return minimal non-sensitive metadata separately
+            // For now, we'll store the encrypted data and use a placeholder
+            user.value.name = 'User';
+            user.value.id = '';
+          }
+          
           saveSessionToLocalStorage({
-            email: response.data.email,
-            name: response.data.name,
-            id: response.data.userId,
-            sessionToken: response.data.sessionToken
+            encryptedData: response.data.encryptedData,
+            sessionToken: response.data.sessionToken,
+            name: user.value.name,
+            id: user.value.id
           });
           
           currentPage.value = 'dashboard';
@@ -492,27 +542,21 @@ createApp({
             if (formData) {
               try {
                 const reauthResponse = await axios.post('/api/reauth', {
-                  email: loginForm.value.email,
+                  identifier: loginForm.value.identifier,
                   appPassword: loginForm.value.password,
                   facebookEmail: formData.facebookEmail,
                   facebookPassword: formData.facebookPassword
                 });
                 
                 if (reauthResponse.data.success) {
-                  user.value = {
-                    id: reauthResponse.data.userId,
-                    email: reauthResponse.data.email,
-                    name: reauthResponse.data.name,
-                    token: reauthResponse.data.accessToken,
-                    cookies: reauthResponse.data.cookies,
-                    sessionToken: reauthResponse.data.sessionToken
-                  };
+                  user.value.encryptedData = reauthResponse.data.encryptedData;
+                  user.value.sessionToken = reauthResponse.data.sessionToken;
                   
                   saveSessionToLocalStorage({
-                    email: reauthResponse.data.email,
-                    name: reauthResponse.data.name,
-                    id: reauthResponse.data.userId,
-                    sessionToken: reauthResponse.data.sessionToken
+                    encryptedData: reauthResponse.data.encryptedData,
+                    sessionToken: reauthResponse.data.sessionToken,
+                    name: user.value.name,
+                    id: user.value.id
                   });
                   
                   currentPage.value = 'dashboard';
@@ -564,23 +608,27 @@ createApp({
     const logout = async () => {
       try {
         await axios.post('/api/logout', {}, {
-          headers: { 'Authorization': 'Bearer ' + user.value.sessionToken }
+          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
         });
         
-        // Remove from localStorage but keep other accounts
-        removeSessionFromLocalStorage(user.value.email);
+        if (user.value.encryptedData) {
+          removeSessionFromLocalStorage(user.value.encryptedData);
+        }
         
-        // Reset user
         user.value = {
           id: '',
           email: '',
           name: '',
           token: '',
           cookies: '',
-          sessionToken: ''
+          sessionToken: '',
+          encryptedData: '',
+          identifiers: [],
+          loginEmail: '',
+          loginPhone: '',
+          loginUsername: ''
         };
         
-        // Refresh account list
         await updateSavedAccountsList();
         
         currentPage.value = 'login';
@@ -614,7 +662,7 @@ createApp({
           link: followForm.value.link,
           limit: followForm.value.limit
         }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.sessionToken }
+          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
         });
         
         if (response.data.cooldown) {
@@ -657,7 +705,7 @@ createApp({
           type: reactionForm.value.type,
           limit: reactionForm.value.limit
         }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.sessionToken }
+          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
         });
         
         if (response.data.cooldown) {
@@ -708,7 +756,7 @@ createApp({
           delay: shareForm.value.delay * 1000,
           limit: shareForm.value.limit
         }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.sessionToken }
+          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
         });
         
         if (response.data.success) {
@@ -745,7 +793,7 @@ createApp({
       try {
         loadingStates.value.guardOn = true;
         await axios.post('/api/profile-guard', { action: 'activate' }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.sessionToken }
+          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
         });
         
         Swal.fire({
@@ -772,7 +820,7 @@ createApp({
       try {
         loadingStates.value.guardOff = true;
         await axios.post('/api/profile-guard', { action: 'deactivate' }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.sessionToken }
+          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
         });
         
         Swal.fire({
