@@ -80,11 +80,12 @@
           <div v-if="savedAccounts.length > 0" class="mb-6">
             <h3 class="text-lg font-semibold mb-3">Saved Accounts</h3>
             <div class="space-y-2 mb-4">
-              <div v-for="account in savedAccounts" :key="account.userId" 
-                   @click="switchAccount(account)"
+              <div v-for="account in savedAccounts" :key="account.email" 
+                   @click="loginWithSavedAccount(account)"
                    class="flex items-center p-3 bg-gray-50 dark:bg-dark-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-600 transition-colors">
-                <img :src="'https://graph.facebook.com/' + account.userId + '/picture?width=40&height=40'" 
-                     class="w-10 h-10 rounded-full mr-3">
+                <img :src="getProfilePictureUrl(account.facebookId)" 
+                     @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(account.name) + '&background=0ea5e9&color=fff'"
+                     class="w-10 h-10 rounded-full mr-3 object-cover">
                 <div class="flex-1">
                   <p class="font-medium">{{ account.name }}</p>
                   <p class="text-xs text-gray-500 dark:text-gray-400">Last login: {{ formatDate(account.lastLogin) }}</p>
@@ -153,8 +154,9 @@
           </div>
           <div class="p-6">
             <div class="flex items-center mb-6">
-              <img :src="'https://graph.facebook.com/' + user.id + '/picture?width=150&height=150&access_token=' + user.token" 
-                   class="w-16 h-16 rounded-full mr-4 border-2 border-white dark:border-dark-800 shadow">
+              <img :src="getProfilePictureUrl(user.id, user.token)" 
+                   @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=0ea5e9&color=fff'"
+                   class="w-16 h-16 rounded-full mr-4 border-2 border-white dark:border-dark-800 shadow object-cover">
               <div>
                 <h3 class="text-lg font-semibold">{{ user.name }}</h3>
                 <p class="text-gray-600 dark:text-gray-400 text-sm">ID: {{ user.id }}</p>
@@ -207,16 +209,17 @@
           </div>
           <div class="p-6">
             <div class="space-y-3 mb-4">
-              <div v-for="account in savedAccounts" :key="account.userId"
+              <div v-for="account in savedAccounts" :key="account.email"
                    @click="switchToAccount(account)"
                    class="flex items-center p-3 bg-gray-50 dark:bg-dark-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-600 transition-colors">
-                <img :src="'https://graph.facebook.com/' + account.userId + '/picture?width=40&height=40&access_token=350685531728|62f8ce9f74b12f84c123cc23437a4a32'" 
-                     class="w-10 h-10 rounded-full mr-3">
+                <img :src="getProfilePictureUrl(account.facebookId)" 
+                     @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(account.name) + '&background=0ea5e9&color=fff'"
+                     class="w-10 h-10 rounded-full mr-3 object-cover">
                 <div class="flex-1">
                   <p class="font-medium">{{ account.name }}</p>
-                  <p class="text-xs text-gray-500">ID: {{ account.userId }}</p>
+                  <p class="text-xs text-gray-500">ID: {{ account.facebookId }}</p>
                 </div>
-                <span v-if="account.userId === user.id" class="text-green-500">
+                <span v-if="account.email === user.email" class="text-green-500">
                   <i class="fas fa-check-circle"></i> Current
                 </span>
               </div>
@@ -384,13 +387,13 @@
               
               <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Delay (seconds)</label>
-                <input v-model="shareForm.delay" type="text" required 
+                <input v-model="shareForm.delay" type="number" required 
                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
               </div>
               
               <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Share Count</label>
-                <input v-model="shareForm.limit" type="text" required 
+                <input v-model="shareForm.limit" type="number" required 
                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
               </div>
               
@@ -431,8 +434,9 @@
           </div>
           <div class="p-6">
             <div class="text-center mb-6">
-              <img :src="'https://graph.facebook.com/' + user.id + '/picture?width=150&height=150&access_token=' + user.token" 
-                   class="w-24 h-24 rounded-full mx-auto mb-4 border-2 border-white dark:border-dark-800 shadow">
+              <img :src="getProfilePictureUrl(user.id, user.token)" 
+                   @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=0ea5e9&color=fff'"
+                   class="w-24 h-24 rounded-full mx-auto mb-4 border-2 border-white dark:border-dark-800 shadow object-cover">
               <h3 class="text-lg font-semibold">{{ user.name }}</h3>
               <p class="text-gray-600 dark:text-gray-400 text-sm">ID: {{ user.id }}</p>
             </div>
@@ -523,7 +527,6 @@
       </div>
     </div>
   </div>
-
 
   <button id="pwaManualInstall" class="pwa-manual-install">
     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
