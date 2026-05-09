@@ -1,0 +1,205 @@
+/* Tailwind config */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+.loader {
+  border: 3px solid rgba(255, 255, 255);
+  border-top: 3px solid #0ea5e9;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin .8s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 10px;
+}
+
+.dark .loader {
+  border: 3px solid rgba(255, 255, 255);
+  border-top: 3px solid #0ea5e9;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Glassmorphism effect for loading overlay */
+.backdrop-blur-sm {
+  backdrop-filter: blur(10px);
+}
+
+/* Smooth transitions */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #0284c7;
+  border-radius: 4px;
+}
+
+/* PWA Install Modal */
+.pwa-install-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.pwa-install-modal.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.pwa-install-card {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  width: 100%;
+  max-width: 28rem;
+  margin: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  transform: translateY(20px);
+  transition: transform 0.3s ease;
+}
+
+.pwa-install-modal.active .pwa-install-card {
+  transform: translateY(0);
+}
+
+.pwa-install-header {
+  display: flex;
+  align-items: center;
+  padding: 1.5rem;
+}
+
+.pwa-install-icon {
+  background-color: rgba(255, 255, 255, 0.2);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  margin-right: 1rem;
+}
+
+.pwa-install-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.75rem;
+}
+
+.pwa-install-publisher {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}
+
+.pwa-install-body {
+  padding: 0 1.5rem 1.5rem;
+}
+
+.pwa-install-description {
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+.pwa-install-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.pwa-install-button {
+  flex: 1;
+  padding: 0.625rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.pwa-install-secondary {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.pwa-install-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.pwa-install-primary {
+  background-color: white;
+  color: #0ea5e9;
+}
+
+.pwa-install-primary:hover {
+  background-color: #f8fafc;
+  transform: translateY(-1px);
+}
+
+.pwa-manual-install {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
+  color: white;
+  padding: 0.75rem 1.25rem;
+  border-radius: 2rem;
+  font-weight: 500;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 50;
+  transform: translateY(100px);
+  opacity: 0;
+  transition: all 0.3s ease;
+}
+
+.pwa-manual-install.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.pwa-manual-install:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Tailwind configuration */
+@layer base {
+  :root {
+    --color-primary-50: #f0f9ff;
+    --color-primary-100: #e0f2fe;
+    --color-primary-200: #bae6fd;
+    --color-primary-300: #7dd3fc;
+    --color-primary-400: #38bdf8;
+    --color-primary-500: #0ea5e9;
+    --color-primary-600: #0284c7;
+    --color-primary-700: #0369a1;
+    --color-primary-800: #075985;
+    --color-primary-900: #0c4a6e;
+    --color-dark-900: #0f172a;
+    --color-dark-800: #1e293b;
+    --color-dark-700: #334155;
+    --color-dark-600: #475569;
+    --color-dark-500: #64748b;
+  }
+}

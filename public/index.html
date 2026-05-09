@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FFSLiker - Facebook Tools</title>
+  <meta name="description" content="Boost your Facebook posts with automatic likes, followers and shares">
+  <meta name="keywords" content="facebook autoliker, free likes, facebook followers">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icons/FFS-192x192.png">
+  <link rel="icon" type="icons/png" href="icons/FFS-512x512.png">
+  <script>
+    const originalWarn = console.warn;
+    const originalInfo = console.info;
+    console.warn = function(...args) {
+      if (args[0]?.includes('cdn.tailwindcss.com')) return;
+      originalWarn.apply(console, args);
+    };
+    console.info = function(...args) {
+      if (args[0]?.includes('You are running a development build of Vue')) return;
+      originalInfo.apply(console, args);
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['Roboto Mono', 'monospace']
+          },
+          colors: {
+            primary: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              200: '#bae6fd',
+              300: '#7dd3fc',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+              800: '#075985',
+              900: '#0c4a6e',
+            },
+            dark: {
+              900: '#0f172a',
+              800: '#1e293b',
+              700: '#334155',
+              600: '#475569',
+              500: '#64748b',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-50 dark:bg-dark-900 min-h-screen font-sans text-gray-900 dark:text-gray-100">
+  <div id="loadingOverlay" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-dark-900/80 backdrop-blur-sm transition-opacity duration-500">
+    <div class="loader"></div>
+    <p class="text-primary-200 text-sm mt-1">Please wait...</p>
+  </div>
+  <div id="app">
+    <!-- Login Page -->
+    <div v-if="currentPage === 'login'" class="container mx-auto px-4 py-8">
+      <div class="max-w-md mx-auto bg-white/50 dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-dark-700">
+        <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
+          <h1 class="text-white text-2xl font-bold tracking-tight">FFSLiker</h1>
+          <p class="text-primary-200 text-sm mt-1">Facebook Tool</p>
+        </div>
+        <div class="p-6">
+          <!-- Saved Accounts Section -->
+          <div v-if="savedAccounts.length > 0" class="mb-6">
+            <h3 class="text-lg font-semibold mb-3">Saved Accounts</h3>
+            <div class="space-y-2 mb-4">
+              <div v-for="account in savedAccounts" :key="account.userId" 
+                   @click="switchAccount(account)"
+                   class="flex items-center p-3 bg-gray-50 dark:bg-dark-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-600 transition-colors">
+                <img :src="'https://graph.facebook.com/' + account.userId + '/picture?width=40&height=40'" 
+                     class="w-10 h-10 rounded-full mr-3">
+                <div class="flex-1">
+                  <p class="font-medium">{{ account.name }}</p>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">Last login: {{ formatDate(account.lastLogin) }}</p>
+                </div>
+                <i class="fas fa-chevron-right text-gray-400"></i>
+              </div>
+            </div>
+            <div class="border-t border-gray-200 dark:border-dark-600 pt-3">
+              <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">Login with a different account:</p>
+            </div>
+          </div>
+
+          <h2 class="text-xl font-semibold mb-4">Welcome to FFSLiker!</h2>
+          <p class="text-gray-600 dark:text-gray-400 mb-6">Boost your Facebook presence with automated followers, reactions, and shares.</p>
+          
+          <form @submit.prevent="handleLogin" class="space-y-4">
+            <div>
+              <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Username/ID/Email/Phone</label>
+              <input v-model="loginForm.username" type="text" required 
+                     class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400"
+                     placeholder="User">
+            </div>
+            
+            <div>
+              <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Password</label>
+              <input v-model="loginForm.password" type="password" required 
+                     class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400"
+                     placeholder="••••••••">
+            </div>
+            
+            <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
+                    :disabled="loadingStates.login">
+              <span v-if="loadingStates.login" class="loader"></span>
+              <span v-else>Login</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Dashboard Page -->
+    <div v-if="currentPage === 'dashboard'" class="container mx-auto px-4 py-4">
+      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16 items-center">
+            <div class="flex items-center">
+              <span class="text-xl font-bold text-gray-900 dark:text-white">FFSLikers</span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <button @click="showAccountSwitcher = true" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors flex items-center">
+                <i class="fas fa-exchange-alt mr-2"></i> Switch Account
+              </button>
+              <button @click="logout" class="text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors flex items-center">
+                <i class="fas fa-sign-out-alt mr-2"></i> Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+      
+      <div class="max-w-7xl mx-auto">
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
+          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
+            <h2 class="text-white text-xl font-bold">Dashboard</h2>
+            <p class="text-primary-200 text-sm">Welcome back, {{ user.name }}</p>
+          </div>
+          <div class="p-6">
+            <div class="flex items-center mb-6">
+              <img :src="'https://graph.facebook.com/' + user.id + '/picture?width=150&height=150&access_token=' + user.token" 
+                   class="w-16 h-16 rounded-full mr-4 border-2 border-white dark:border-dark-800 shadow">
+              <div>
+                <h3 class="text-lg font-semibold">{{ user.name }}</h3>
+                <p class="text-gray-600 dark:text-gray-400 text-sm">ID: {{ user.id }}</p>
+                <span class="inline-block bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs px-2.5 py-1 rounded-full font-medium mt-1">ACTIVE</span>
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+              <div @click="navigateTo('follow')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
+                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
+                  <i class="fas fa-user-plus text-4xl"></i>
+                </div>
+                <h3 class="font-medium text-center">Auto Follower</h3>
+                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Boost followers</p>
+              </div>
+              
+              <div @click="navigateTo('reactions')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
+                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
+                  <i class="fas fa-thumbs-up text-4xl"></i>
+                </div>
+                <h3 class="font-medium text-center">Auto Reaction</h3>
+                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Boost post reactions</p>
+              </div>
+              
+              <div @click="navigateTo('share')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
+                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
+                  <i class="fas fa-share text-4xl"></i>
+                </div>
+                <h3 class="font-medium text-center">Auto Share</h3>
+                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Boost post shares</p>
+              </div>
+              
+              <div @click="navigateTo('profile')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
+                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
+                  <i class="fas fa-shield-alt text-4xl"></i>
+                </div>
+                <h3 class="font-medium text-center">Profile Guard</h3>
+                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Profile Guard Activator</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account Switcher Modal -->
+      <div v-if="showAccountSwitcher" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg max-w-md w-full mx-4">
+          <div class="bg-primary-600 dark:bg-primary-800 py-4 px-6 rounded-t-xl">
+            <h3 class="text-white text-lg font-bold">Switch Account</h3>
+          </div>
+          <div class="p-6">
+            <div class="space-y-3 mb-4">
+              <div v-for="account in savedAccounts" :key="account.userId"
+                   @click="switchToAccount(account)"
+                   class="flex items-center p-3 bg-gray-50 dark:bg-dark-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-600 transition-colors">
+                <img :src="'https://graph.facebook.com/' + account.userId + '/picture?width=40&height=40'" 
+                     class="w-10 h-10 rounded-full mr-3">
+                <div class="flex-1">
+                  <p class="font-medium">{{ account.name }}</p>
+                  <p class="text-xs text-gray-500">ID: {{ account.userId }}</p>
+                </div>
+                <span v-if="account.userId === user.id" class="text-green-500">
+                  <i class="fas fa-check-circle"></i> Current
+                </span>
+              </div>
+            </div>
+            <button @click="showAccountSwitcher = false; currentPage = 'login'"
+                    class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg">
+              Login with Different Account
+            </button>
+            <button @click="showAccountSwitcher = false"
+                    class="w-full mt-2 bg-gray-200 dark:bg-dark-700 hover:bg-gray-300 dark:hover:bg-dark-600 text-gray-700 dark:text-gray-300 py-2.5 px-4 rounded-lg">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Auto Follower Page -->
+    <div v-if="currentPage === 'follow'" class="container mx-auto px-4 py-4">
+      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16 items-center">
+            <div class="flex items-center">
+              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
+                <i class="fas fa-chevron-left"></i>
+              </button>
+              <span class="text-xl font-bold">Auto Follower</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+      
+      <div class="max-w-3xl mx-auto">
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
+          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
+            <h2 class="text-white text-xl font-bold">Follower Panel</h2>
+          </div>
+          <div class="p-6">
+            <form @submit.prevent="submitFollowRequest" class="space-y-5">
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Profile URL</label>
+                <input v-model="followForm.link" type="text" required 
+                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
+              </div>
+              
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Follower Count</label>
+                <select v-model="followForm.limit" required 
+                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="5">5 followers</option>
+                  <option value="10">10 followers</option>
+                  <option value="20">20 followers</option>
+                </select>
+              </div>
+              
+              <div class="text-sm text-gray-500 dark:text-gray-400">
+                <p>Note: Profile must be PUBLIC (not locked)</p>
+              </div>
+              
+              <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
+                      :disabled="loadingStates.follow">
+                <span v-if="loadingStates.follow" class="loader"></span>
+                <span v-else>Start Follow</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Auto Reactions Page -->
+    <div v-if="currentPage === 'reactions'" class="container mx-auto px-4 py-4">
+      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16 items-center">
+            <div class="flex items-center">
+              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
+                <i class="fas fa-chevron-left"></i>
+              </button>
+              <span class="text-xl font-bold">Auto Reaction</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+      
+      <div class="max-w-3xl mx-auto">
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
+          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
+            <h2 class="text-white text-xl font-bold">Reaction Panel</h2>
+          </div>
+          <div class="p-6">
+            <form @submit.prevent="submitReactionRequest" class="space-y-5">
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Post URL</label>
+                <input v-model="reactionForm.link" type="text" required 
+                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
+              </div>
+              
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Reaction Type</label>
+                <select v-model="reactionForm.type" required 
+                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="LIKE">Like</option>
+                  <option value="LOVE">Love</option>
+                  <option value="CARE">Care</option>
+                  <option value="HAHA">Haha</option>
+                  <option value="WOW">Wow</option>
+                  <option value="SAD">Sad</option>
+                  <option value="ANGRY">Angry</option>
+                </select>
+              </div>
+              
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Reaction Count</label>
+                <select v-model="reactionForm.limit" required 
+                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                  <option value="5">5 reactions</option>
+                  <option value="10">10 reactions</option>
+                  <option value="20">20 reactions</option>
+                </select>
+              </div>
+              
+              <div class="text-sm text-gray-500 dark:text-gray-400">
+                <p>Note: Post must be set to PUBLIC visibility</p>
+              </div>
+              
+              <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
+                      :disabled="loadingStates.reactions">
+                <span v-if="loadingStates.reactions" class="loader"></span>
+                <span v-else>Start React</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Auto Share Page -->
+    <div v-if="currentPage === 'share'" class="container mx-auto px-4 py-4">
+      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16 items-center">
+            <div class="flex items-center">
+              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
+                <i class="fas fa-chevron-left"></i>
+              </button>
+              <span class="text-xl font-bold">Auto Share</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+      
+      <div class="max-w-3xl mx-auto">
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
+          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
+            <h2 class="text-white text-xl font-bold">Share Panel</h2>
+          </div>
+          <div class="p-6">
+            <form @submit.prevent="submitShareRequest" class="space-y-5">
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Post URL</label>
+                <input v-model="shareForm.link" type="text" required 
+                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
+              </div>
+              
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Delay (seconds)</label>
+                <input v-model="shareForm.delay" type="text" required 
+                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
+              </div>
+              
+              <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Share Count</label>
+                <input v-model="shareForm.limit" type="text" required 
+                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
+              </div>
+              
+              <div class="text-sm text-gray-500 dark:text-gray-400">
+                <p>Note: Post must be set to PUBLIC visibility. Proceed with caution</p>
+              </div>
+              
+              <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
+                      :disabled="loadingStates.share">
+                <span v-if="loadingStates.share" class="loader"></span>
+                <span v-else>Start Share</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Profile Guard Page -->
+    <div v-if="currentPage === 'profile'" class="container mx-auto px-4 py-4">
+      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16 items-center">
+            <div class="flex items-center">
+              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
+                <i class="fas fa-chevron-left"></i>
+              </button>
+              <span class="text-xl font-bold">Profile Guard</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+      
+      <div class="max-w-3xl mx-auto">
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
+          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
+            <h2 class="text-white text-xl font-bold">Profile Guard Panel</h2>
+          </div>
+          <div class="p-6">
+            <div class="text-center mb-6">
+              <img :src="'https://graph.facebook.com/' + user.id + '/picture?width=150&height=150&access_token=' + user.token" 
+                   class="w-24 h-24 rounded-full mx-auto mb-4 border-2 border-white dark:border-dark-800 shadow">
+              <h3 class="text-lg font-semibold">{{ user.name }}</h3>
+              <p class="text-gray-600 dark:text-gray-400 text-sm">ID: {{ user.id }}</p>
+            </div>
+            
+            <div class="text-center mb-6">
+              <p class="text-gray-500 dark:text-gray-400 text-sm mb-5">
+                If you're using your <b>main account</b> we highly recommend removing the logged location or changing the password immediately after the process so that your token will not be included for Facebook liker.
+              </p>
+              
+              <div class="flex flex-col space-y-4 justify-center">
+                <button @click="activateProfileGuard" class="bg-green-600 hover:bg-green-700 text-white py-2.5 px-5 rounded-lg font-medium flex items-center justify-center"
+                :disabled="loadingStates.guardOn">
+                <span v-if="loadingStates.guardOn" class="loader"></span>
+                  <span v-else>Activate</span>
+                </button>
+                <button @click="deactivateProfileGuard" class="bg-red-600 hover:bg-red-700 text-white py-2.5 px-3 rounded-lg font-medium flex items-center justify-center"
+                :disabled="loadingStates.guardOff">
+                <span v-if="loadingStates.guardOff" class="loader"></span>
+                  <span v-else>Deactivate</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <footer class="mt-auto p-6 flex justify-between items-center opacity-40 hover:opacity-100 transition-opacity duration-300">
+      <span class="text-[10px] text-gray-500 font-mono tracking-tighter">ffsliker</span>
+      <span class="text-[10px] text-gray-500 font-mono">by kouzen</span>
+    </footer>
+
+    
+    <!-- Cooldown Page -->
+    <div v-if="currentPage === 'cooldown'" class="container mx-auto px-4 py-4">
+      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16 items-center">
+            <div class="flex items-center">
+              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
+                <i class="fas fa-arrow-left"></i>
+              </button>
+              <span class="text-xl font-bold">System Cooldown</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+      
+      <div class="max-w-3xl mx-auto">
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
+          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
+            <h2 class="text-white text-xl font-bold">Processing Limit</h2>
+          </div>
+          <div class="p-6 text-center">
+            <div class="text-primary-500 text-6xl mb-5">
+              <i class="fas fa-clock"></i>
+            </div>
+            <h3 class="text-xl font-semibold mb-3">Please Wait</h3>
+            <p class="text-gray-600 dark:text-gray-400 mb-6">
+              {{ getCooldownMessage() }}
+            </p>
+            <button @click="currentPage = 'dashboard'" class="bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-5 rounded-lg font-medium">
+              Return to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div id="pwaInstallModal" class="pwa-install-modal">
+    <div class="pwa-install-card">
+      <div class="pwa-install-header">
+        <div class="pwa-install-icon bg-dark-900 flex items-center justify-center overflow-hidden">
+          <img src="icons/FFS-192x192.png" alt="Logo" class="w-8 h-8 object-contain">
+        </div>
+        <div>
+          <div class="pwa-install-title">Install FFSLiker</div>
+          <div class="pwa-install-publisher">ffsliker.koyeb.app</div>
+        </div>
+      </div>
+      <div class="pwa-install-body">
+        <p class="pwa-install-description">This web app can be installed on your device and launch like a regular app.</p>
+        <div class="pwa-install-buttons">
+          <button id="pwaInstallCancel" class="pwa-install-button pwa-install-secondary">Not now</button>
+          <button id="pwaInstallConfirm" class="pwa-install-button pwa-install-primary">Install</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <button id="pwaManualInstall" class="pwa-manual-install">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+    Install App
+  </button>
+
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.5.14/dist/vue.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="app.js"></script>
+</body>
+</html>

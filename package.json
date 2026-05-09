@@ -1,0 +1,20 @@
+{
+  "name": "ffsliker",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "connect-mongo": "^5.1.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "mongoose": "^8.15.1",
+    "querystring": "^0.2.1",
+    "uuid": "^11.1.0"
+  }
+}
