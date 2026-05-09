@@ -133,7 +133,7 @@ app.use(limiter);
 app.set('trust proxy', 1);
 
 // Database connection
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://zishindev:I352MfK5GcFsZDIw@ffsliker.j9iepam.mongodb.net/ffsliker?retryWrites=true&w=majority";
+const MONGODB_URI = process.env.MONGODB_URI;
 
 async function connectDB() {
   try {
