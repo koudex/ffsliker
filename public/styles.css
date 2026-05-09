@@ -206,3 +206,20 @@
 [v-cloak] {
   display: none !important;
 }
+/* Prevent scrollbar width shift */
+html {
+  overflow-x: hidden;
+  margin-right: calc(100vw - 100%);
+}
+
+/* Alternative: Force scrollbar to always be visible */
+body {
+  overflow-y: scroll;
+}
+
+/* Or use this modern approach */
+@supports (scrollbar-gutter: stable) {
+  html {
+    scrollbar-gutter: stable;
+  }
+}
