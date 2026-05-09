@@ -4,7 +4,6 @@ const axios = require('axios');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
-const querystring = require('querystring');
 const crypto = require('crypto');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
@@ -275,7 +274,7 @@ async function extractID(url) {
       {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
       }
     );
