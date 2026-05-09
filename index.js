@@ -1063,6 +1063,7 @@ app.post('/api/share', authenticate, async (req, res) => {
       });
     }
 
+    /*
     const cooldown = await checkCooldown(req.user.facebookId, 'lastShare');
     if (cooldown) {
       return res.status(429).json({ 
@@ -1072,6 +1073,7 @@ app.post('/api/share', authenticate, async (req, res) => {
         message: `Please wait ${cooldown} more minutes before sharing again`
       });
     }
+    */
 
     let successCount = 0;
     let consecutiveFails = 0;
