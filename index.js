@@ -1,4 +1,4 @@
-// ============== index.js (Updated) ==============
+// ============== index.js (FIXED) ==============
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
@@ -57,7 +57,13 @@ function encrypt(text) {
 
 function decrypt(text) {
   try {
+    if (!text || typeof text !== 'string') {
+      throw new Error('Invalid encrypted text');
+    }
     const textParts = text.split(':');
+    if (textParts.length < 2) {
+      throw new Error('Invalid encrypted text format');
+    }
     const iv = Buffer.from(textParts.shift(), 'hex');
     const encryptedText = textParts.join(':');
     const key = getValidKey(ENCRYPTION_KEY);
@@ -66,7 +72,7 @@ function decrypt(text) {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (error) {
-    console.error('Decryption error:', error);
+    console.error('Decryption error:', error.message);
     throw new Error('Decryption failed');
   }
 }
@@ -92,10 +98,11 @@ function encryptUserSession(userData) {
 // NEW: Decrypt user session token
 function decryptUserSession(encryptedToken) {
   try {
+    if (!encryptedToken) return null;
     const decrypted = decrypt(encryptedToken);
     return JSON.parse(decrypted);
   } catch (error) {
-    console.error('Session decryption error:', error);
+    console.error('Session decryption error:', error.message);
     return null;
   }
 }
@@ -112,6 +119,7 @@ function generateSessionToken(email, deviceId) {
 
 function verifySessionToken(token) {
   try {
+    if (!token) return null;
     const decrypted = decrypt(token);
     const payload = JSON.parse(decrypted);
     return payload;
@@ -125,7 +133,7 @@ function hashPassword(password) {
 }
 
 function randHex(length) {
-  return Array.from({ length: length }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
+  return Array.from({ length: length }, () => '0123456789abcdef'[Math.floor(Math.random()  * 16)]).join('');
 }
 
 // Middleware
@@ -163,11 +171,15 @@ const limiter = rateLimit({
 app.use(limiter);
 app.set('trust proxy', 1);
 
-// Database connection
+// Database connection with better error handling
 const MONGODB_URI = process.env.MONGODB_URI;
 
 async function connectDB() {
   try {
+    // Log the URI (masked for security)
+    const maskedUri = MONGODB_URI.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@');
+    console.log(`Connecting to MongoDB at: ${maskedUri}`);
+    
     await mongoose.connect(MONGODB_URI, {
       ssl: true,
       tlsAllowInvalidCertificates: false,
@@ -176,12 +188,49 @@ async function connectDB() {
       serverSelectionTimeoutMS: 5000,
       retryWrites: true,
       retryReads: true,
-      directConnection: false
+      directConnection: false,
+      authSource: 'admin' // Add this for Atlas
     });
     console.log("✅ MongoDB Connected!");
+    
+    // Drop problematic indexes if they exist
+    await fixIndexes();
+    
   } catch (err) {
     console.error("❌ MongoDB Connection Error:", err.message);
+    console.error("Please check your MONGODB_URI environment variable");
+    console.error("Format should be: mongodb+srv://username:password@cluster.mongodb.net/dbname");
     process.exit(1);
+  }
+}
+
+// Function to fix duplicate key issues
+async function fixIndexes() {
+  try {
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
+    
+    for (const collection of collections) {
+      const indexes = await db.collection(collection.name).indexes();
+      for (const index of indexes) {
+        // Drop problematic userId_1 index if it exists
+        if (index.name === 'userId_1') {
+          console.log(`Dropping problematic index userId_1 from ${collection.name}`);
+          await db.collection(collection.name).dropIndex('userId_1');
+        }
+        // Drop any other indexes that might have null key issues
+        if (index.name === 'email_1' && index.unique === true) {
+          console.log(`Dropping unique email index - will be recreated with sparse option`);
+          await db.collection(collection.name).dropIndex('email_1');
+        }
+      }
+    }
+    
+    // Ensure proper indexes are created
+    await User.syncIndexes();
+    console.log("✅ Indexes fixed");
+  } catch (error) {
+    console.error("Error fixing indexes:", error.message);
   }
 }
 
@@ -193,13 +242,11 @@ mongoose.connection.on('error', (err) => {
   console.error('Mongoose connection error:', err);
 });
 
-connectDB();
-
-// Models 
+// Models - Fixed to avoid duplicate key issues
 const UserSchema = new mongoose.Schema({
-  email: { type: String, unique: true, sparse: true },
+  email: { type: String, unique: true, sparse: true, default: null },
   passwordHash: { type: String, required: true },
-  facebookId: { type: String, unique: true, required: true },
+  facebookId: { type: String, unique: true, required: true, sparse: true },
   name: String,
   accessToken: { type: String },
   cookies: { type: String },
@@ -216,17 +263,24 @@ const UserSchema = new mongoose.Schema({
   lastFacebookCheck: Date,
   
   // NEW: Multi-identifier login fields
-  identifiers: [{ type: String }], // Array of all possible login strings (email, phone, username, uid)
-  loginEmail: { type: String, sparse: true }, // Email used during initial login
-  loginPhone: { type: String, sparse: true }, // Phone number used during initial login
-  loginUsername: { type: String, sparse: true } // Username used during initial login
+  identifiers: [{ type: String }],
+  loginEmail: { type: String, sparse: true },
+  loginPhone: { type: String, sparse: true },
+  loginUsername: { type: String, sparse: true }
 });
 
-// NEW: Create indexes for faster identifier lookups
+// Create indexes properly
 UserSchema.index({ identifiers: 1 });
-UserSchema.index({ loginEmail: 1 });
-UserSchema.index({ loginPhone: 1 });
-UserSchema.index({ loginUsername: 1 });
+UserSchema.index({ loginEmail: 1 }, { sparse: true });
+UserSchema.index({ loginPhone: 1 }, { sparse: true });
+UserSchema.index({ loginUsername: 1 }, { sparse: true });
+UserSchema.index({ facebookId: 1 }, { unique: true, sparse: true });
+
+// Ensure email is not null for uniqueness
+UserSchema.pre('save', function(next) {
+  if (this.email === '') this.email = null;
+  next();
+});
 
 const User = mongoose.model('User', UserSchema);
 
@@ -238,7 +292,7 @@ const Cooldown = mongoose.model('Cooldown', new mongoose.Schema({
 }));
 
 const Liker = mongoose.model('Liker', new mongoose.Schema({
-  facebookId: String,
+  facebookId: { type: String, unique: true, sparse: true },
   name: String,
   accessToken: String,
   cookies: String,
@@ -481,26 +535,28 @@ const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const encryptedSession = authHeader.split(' ')[1];
-      const decryptedSession = decryptUserSession(encryptedSession);
-      
-      if (decryptedSession && decryptedSession.id) {
-        // Verify user still exists and is active
-        const user = await User.findOne({ 
-          facebookId: decryptedSession.id,
-          isActive: true 
-        });
+      if (encryptedSession && encryptedSession !== 'null' && encryptedSession !== 'undefined') {
+        const decryptedSession = decryptUserSession(encryptedSession);
         
-        if (user) {
-          req.user = user;
-          // Also store the decrypted session data for convenience
-          req.sessionData = decryptedSession;
-          return next();
+        if (decryptedSession && decryptedSession.id) {
+          // Verify user still exists and is active
+          const user = await User.findOne({ 
+            facebookId: decryptedSession.id,
+            isActive: true 
+          });
+          
+          if (user) {
+            req.user = user;
+            // Also store the decrypted session data for convenience
+            req.sessionData = decryptedSession;
+            return next();
+          }
         }
       }
     }
     
     // Fallback to regular session
-    if (req.session.email) {
+    if (req.session && req.session.email) {
       const user = await User.findOne({ email: req.session.email });
       if (user && user.isActive) {
         req.user = user;
@@ -508,29 +564,9 @@ const authenticate = async (req, res, next) => {
       }
     }
     
-    // Legacy token support
-    if (authHeader) {
-      const token = authHeader.split(' ')[1];
-      const payload = verifySessionToken(token);
-      
-      if (payload && payload.email) {
-        const user = await User.findOne({ 
-          email: payload.email,
-          'sessionTokens.token': token,
-          isActive: true
-        });
-        
-        if (user) {
-          req.session.email = user.email;
-          req.user = user;
-          return next();
-        }
-      }
-    }
-    
     res.status(401).json({ success: false, error: 'Unauthorized' });
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error('Authentication error:', error.message);
     res.status(500).json({ success: false, error: 'Authentication failed' });
   }
 };
@@ -960,15 +996,18 @@ app.post('/api/logout', authenticate, async (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const encryptedSession = authHeader.split(' ')[1];
-      const decryptedSession = decryptUserSession(encryptedSession);
-      
-      if (decryptedSession && decryptedSession.id && req.user) {
-        // We don't have token to remove, just invalidate
-        console.log(`User ${decryptedSession.id} logged out`);
+      if (encryptedSession && encryptedSession !== 'null') {
+        const decryptedSession = decryptUserSession(encryptedSession);
+        
+        if (decryptedSession && decryptedSession.id && req.user) {
+          console.log(`User ${decryptedSession.id} logged out`);
+        }
       }
     }
     
-    req.session.destroy();
+    if (req.session) {
+      req.session.destroy();
+    }
     
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
@@ -977,7 +1016,7 @@ app.post('/api/logout', authenticate, async (req, res) => {
   }
 });
 
-// Follow endpoint - UPDATED to use req.user from authenticate
+// Follow endpoint
 app.post('/api/follow', authenticate, async (req, res) => {
   try {
     const { link, limit } = req.body;
@@ -1313,15 +1352,17 @@ app.get('/api/avatar/:facebookId', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const encryptedSession = authHeader.split(' ')[1];
-      const decryptedSession = decryptUserSession(encryptedSession);
-      
-      if (decryptedSession && decryptedSession.accessToken) {
-        accessToken = decryptedSession.accessToken;
+      if (encryptedSession && encryptedSession !== 'null') {
+        const decryptedSession = decryptUserSession(encryptedSession);
+        
+        if (decryptedSession && decryptedSession.accessToken) {
+          accessToken = decryptedSession.accessToken;
+        }
       }
     }
     
     // If no encrypted session, check regular session
-    if (!accessToken && req.session && req.session.email) {
+    if (req.session && req.session.email) {
       const user = await User.findOne({ email: req.session.email });
       if (user && user.accessToken) {
         accessToken = user.accessToken;
@@ -1360,6 +1401,11 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+connectDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}).catch(err => {
+  console.error('Failed to connect to database:', err);
+  process.exit(1);
 });
