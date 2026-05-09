@@ -203,3 +203,6 @@
     --color-dark-500: #64748b;
   }
 }
+[v-cloak] {
+  display: none !important;
+}
