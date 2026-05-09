@@ -226,9 +226,8 @@ createApp({
 
     const getProfilePictureUrl = (facebookId, accessToken = null) => {
       if (!facebookId) return '';
-      // Use the user's own token if available, otherwise use public fallback token
-      const token = accessToken || '350685531728|62f8ce9f74b12f84c123cc23437a4a32';
-      return `https://graph.facebook.com/${facebookId}/picture?width=80&height=80&access_token=${token}`;
+      // Return proxy endpoint instead of direct Facebook URL
+      return `/api/avatar/${facebookId}`;
     };
 
     const checkSession = async () => {
