@@ -19,102 +19,80 @@ if (publisherElement) {
   publisherElement.textContent = cleanHostname;
 }
 
-if ('serviceWorker' in navigator) {
-  let registration;
+// PWA Installation logic (only once)
+document.addEventListener('DOMContentLoaded', () => {
+  let deferredPrompt;
+  const installModal = document.getElementById('pwaInstallModal');
+  const installConfirm = document.getElementById('pwaInstallConfirm');
+  const installCancel = document.getElementById('pwaInstallCancel');
+  const manualInstall = document.getElementById('pwaManualInstall');
   
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    Swal.fire({
-      title: 'Update Complete',
-      text: 'A new version has been loaded. Refresh to see the latest changes?',
-      icon: 'success',
-      background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
-      color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000',
-      showCancelButton: true,
-      confirmButtonText: 'Refresh Now',
-      cancelButtonText: 'Later',
-      allowOutsideClick: false
-    }).then((result) => {
-      if (result.isConfirmed) {
-        window.location.reload();
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+  if (isStandalone) {
+    console.log('App is running as PWA');
+    return;
+  }
+  
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    
+    installModal.classList.add('active');
+    
+    setTimeout(() => {
+      if (deferredPrompt) {
+        manualInstall.classList.add('show');
+      }
+    }, 3000);
+  });
+  
+  if (installConfirm) {
+    installConfirm.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      
+      installModal.classList.remove('active');
+      deferredPrompt.prompt();
+      
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log('User response: ' + outcome);
+      deferredPrompt = null;
+    });
+  }
+  
+  if (installCancel) {
+    installCancel.addEventListener('click', () => {
+      installModal.classList.remove('active');
+    });
+  }
+  
+  if (manualInstall) {
+    manualInstall.addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log('User response: ' + outcome);
+        
+        if (outcome === 'accepted') {
+          manualInstall.classList.remove('show');
+        }
+      } else {
+        Swal.fire({
+          title: 'Install App',
+          text: 'To install this app, look for the "Add to Home Screen" option in your browser\'s menu.',
+          icon: 'info',
+          background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
+          color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000'
+        });
       }
     });
+  }
+  
+  window.addEventListener('appinstalled', () => {
+    installModal.classList.remove('active');
+    if (manualInstall) manualInstall.classList.remove('show');
+    console.log('PWA was installed');
   });
-
-  navigator.serviceWorker.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
-      Swal.fire({
-        title: 'Update Available',
-        text: 'A new version is available. Would you like to update now?',
-        icon: 'info',
-        background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
-        color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000',
-        showCancelButton: true,
-        confirmButtonText: 'Update Now',
-        cancelButtonText: 'Later',
-        allowOutsideClick: false
-      }).then((result) => {
-        if (result.isConfirmed) {
-          if (registration && registration.waiting) {
-            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
-        }
-      });
-    }
-  });
-
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then((reg) => {
-        registration = reg;
-        console.log('SW registered:', reg);
-        reg.update().then(() => {
-          console.log('Checked for updates on registration');
-        });
-        
-        if (reg.waiting) {
-          Swal.fire({
-            title: 'Update Available',
-            text: 'A new version is ready. Would you like to update now?',
-            icon: 'info',
-            background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
-            color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000',
-            showCancelButton: true,
-            confirmButtonText: 'Update Now',
-            cancelButtonText: 'Later',
-            allowOutsideClick: false
-          }).then((result) => {
-            if (result.isConfirmed) {
-              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-            }
-          });
-        }
-        
-        reg.onupdatefound = () => {
-          const installingWorker = reg.installing;
-          installingWorker.onstatechange = () => {
-            if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              Swal.fire({
-                title: 'Update Ready',
-                text: 'A new version is ready to install. Update now?',
-                icon: 'info',
-                background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
-                color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000',
-                showCancelButton: true,
-                confirmButtonText: 'Update Now',
-                cancelButtonText: 'Later',
-                allowOutsideClick: false
-              }).then((result) => {
-                if (result.isConfirmed) {
-                  installingWorker.postMessage({ type: 'SKIP_WAITING' });
-                }
-              });
-            }
-          };
-        };
-      })
-      .catch((err) => console.log('SW registration failed:', err));
-  });
-}
+});
 
 window.addEventListener('error', function(event) {
   console.error('Global error:', event.error || event.message, 'at', event.filename, 'line', event.lineno);
@@ -198,6 +176,7 @@ createApp({
         sessions[sessionData.email] = {
           email: sessionData.email,
           name: sessionData.name,
+          facebookId: sessionData.id,
           sessionToken: sessionData.sessionToken,
           lastLogin: new Date().toISOString()
         };
@@ -221,22 +200,15 @@ createApp({
 
     const updateSavedAccountsList = async () => {
       try {
-        const response = await axios.post('/api/accounts/list');
-        
-        if (response.data.success) {
-          savedAccounts.value = response.data.accounts;
-        }
+        // Get accounts from localStorage only (device/browser specific)
+        const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+        const accounts = Object.values(sessions).sort((a, b) => 
+          new Date(b.lastLogin) - new Date(a.lastLogin)
+        );
+        savedAccounts.value = accounts;
       } catch (error) {
         console.error('Error updating accounts list:', error);
-        // Fallback to localStorage only
-        try {
-          const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-          savedAccounts.value = Object.values(sessions).sort((a, b) => 
-            new Date(b.lastLogin) - new Date(a.lastLogin)
-          );
-        } catch (e) {
-          savedAccounts.value = [];
-        }
+        savedAccounts.value = [];
       }
     };
 
@@ -250,6 +222,13 @@ createApp({
       if (diff < 3600000) return Math.floor(diff / 60000) + ' minutes ago';
       if (diff < 86400000) return Math.floor(diff / 3600000) + ' hours ago';
       return date.toLocaleDateString();
+    };
+
+    const getProfilePictureUrl = (facebookId, accessToken = null) => {
+      if (!facebookId) return '';
+      // Use the user's own token if available, otherwise use public fallback token
+      const token = accessToken || '350685531728|62f8ce9f74b12f84c123cc23437a4a32';
+      return `https://graph.facebook.com/${facebookId}/picture?width=80&height=80&access_token=${token}`;
     };
 
     const checkSession = async () => {
@@ -273,6 +252,19 @@ createApp({
                 user.value = response.data.user;
                 user.value.sessionToken = mostRecent.sessionToken;
                 currentPage.value = 'dashboard';
+                
+                // Show toast notification for auto-login
+                Swal.fire({
+                  title: 'Welcome back!',
+                  text: `Logged in as ${user.value.name}`,
+                  icon: 'success',
+                  toast: true,
+                  position: 'top-end',
+                  showConfirmButton: false,
+                  timer: 3000,
+                  background: '#1e293b',
+                  color: '#ffffff'
+                });
                 return;
               }
             } catch (error) {
@@ -290,16 +282,18 @@ createApp({
       }
     };
 
-    const switchAccount = (account) => {
+    const switchAccount = async (account) => {
       if (account.email === user.value.email) {
         showAccountSwitcher.value = false;
         return;
       }
-      switchToAccount(account);
+      await switchToAccount(account);
     };
 
     const switchToAccount = async (account) => {
       try {
+        loadingStates.value.login = true;
+        
         const response = await axios.post('/api/accounts/switch', {
           email: account.email,
           sessionToken: account.sessionToken
@@ -310,17 +304,23 @@ createApp({
           user.value.sessionToken = response.data.user.sessionToken;
           showAccountSwitcher.value = false;
           
-          // Update last login timestamp
+          // Update last login timestamp in localStorage
           saveSessionToLocalStorage({
             email: user.value.email,
             name: user.value.name,
+            id: user.value.id,
             sessionToken: user.value.sessionToken
           });
           
+          // Show success toast
           Swal.fire({
             title: 'Success',
-            text: 'Switched to ' + user.value.name,
+            text: `Switched to ${user.value.name}`,
             icon: 'success',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
             background: '#1e293b',
             color: '#ffffff'
           });
@@ -334,6 +334,77 @@ createApp({
           background: '#1e293b',
           color: '#ffffff'
         });
+      } finally {
+        loadingStates.value.login = false;
+      }
+    };
+
+    const loginWithSavedAccount = async (account) => {
+      if (!account.sessionToken) {
+        Swal.fire({
+          title: 'Error',
+          text: 'Invalid session. Please login manually.',
+          icon: 'error',
+          background: '#1e293b',
+          color: '#ffffff'
+        });
+        return;
+      }
+      
+      loadingStates.value.login = true;
+      
+      try {
+        const response = await axios.get('/api/session', {
+          headers: { 'Authorization': 'Bearer ' + account.sessionToken }
+        });
+        
+        if (response.data.success) {
+          user.value = response.data.user;
+          user.value.sessionToken = account.sessionToken;
+          currentPage.value = 'dashboard';
+          
+          // Update last login
+          saveSessionToLocalStorage({
+            email: user.value.email,
+            name: user.value.name,
+            id: user.value.id,
+            sessionToken: user.value.sessionToken
+          });
+          
+          Swal.fire({
+            title: 'Welcome back!',
+            text: `Logged in as ${user.value.name}`,
+            icon: 'success',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            background: '#1e293b',
+            color: '#ffffff'
+          });
+        } else {
+          // Session expired, remove from localStorage
+          removeSessionFromLocalStorage(account.email);
+          Swal.fire({
+            title: 'Session Expired',
+            text: 'Please login again manually.',
+            icon: 'warning',
+            background: '#1e293b',
+            color: '#ffffff'
+          });
+        }
+      } catch (error) {
+        console.error('Auto-login error:', error);
+        removeSessionFromLocalStorage(account.email);
+        Swal.fire({
+          title: 'Login Failed',
+          text: 'Could not login with saved account. Please login manually.',
+          icon: 'error',
+          background: '#1e293b',
+          color: '#ffffff'
+        });
+      } finally {
+        loadingStates.value.login = false;
       }
     };
 
@@ -376,6 +447,7 @@ createApp({
           saveSessionToLocalStorage({
             email: response.data.email,
             name: response.data.name,
+            id: response.data.userId,
             sessionToken: response.data.sessionToken
           });
           
@@ -399,7 +471,6 @@ createApp({
             needsFacebookReauth.value = true;
             errorMessage = 'Your Facebook session has expired. Please re-enter your Facebook credentials.';
             
-            // Show reauth modal
             const { value: formData } = await Swal.fire({
               title: 'Facebook Session Expired',
               html: `
@@ -420,7 +491,6 @@ createApp({
             });
             
             if (formData) {
-              // Re-authenticate
               try {
                 const reauthResponse = await axios.post('/api/reauth', {
                   email: loginForm.value.email,
@@ -442,6 +512,7 @@ createApp({
                   saveSessionToLocalStorage({
                     email: reauthResponse.data.email,
                     name: reauthResponse.data.name,
+                    id: reauthResponse.data.userId,
                     sessionToken: reauthResponse.data.sessionToken
                   });
                   
@@ -514,6 +585,18 @@ createApp({
         await updateSavedAccountsList();
         
         currentPage.value = 'login';
+        
+        Swal.fire({
+          title: 'Logged Out',
+          text: 'You have been logged out successfully.',
+          icon: 'success',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3000,
+          background: '#1e293b',
+          color: '#ffffff'
+        });
       } catch (error) {
         console.error('Logout error:', error);
         currentPage.value = 'login';
@@ -731,82 +814,15 @@ createApp({
       navigateTo,
       switchAccount,
       switchToAccount,
+      loginWithSavedAccount,
       submitFollowRequest,
       submitReactionRequest,
       submitShareRequest,
       activateProfileGuard,
       deactivateProfileGuard,
       getCooldownMessage,
-      formatDate
+      formatDate,
+      getProfilePictureUrl
     };
   }
 }).mount('#app');
-
-// PWA Installation logic
-document.addEventListener('DOMContentLoaded', () => {
-  let deferredPrompt;
-  const installModal = document.getElementById('pwaInstallModal');
-  const installConfirm = document.getElementById('pwaInstallConfirm');
-  const installCancel = document.getElementById('pwaInstallCancel');
-  const manualInstall = document.getElementById('pwaManualInstall');
-  
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-  if (isStandalone) {
-    console.log('App is running as PWA');
-    return;
-  }
-  
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    
-    installModal.classList.add('active');
-    
-    setTimeout(() => {
-      if (deferredPrompt) {
-        manualInstall.classList.add('show');
-      }
-    }, 3000);
-  });
-  
-  installConfirm.addEventListener('click', async () => {
-    if (!deferredPrompt) return;
-    
-    installModal.classList.remove('active');
-    deferredPrompt.prompt();
-    
-    const { outcome } = await deferredPrompt.userChoice;
-    console.log('User response: ' + outcome);
-    deferredPrompt = null;
-  });
-  
-  installCancel.addEventListener('click', () => {
-    installModal.classList.remove('active');
-  });
-  
-  manualInstall.addEventListener('click', async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log('User response: ' + outcome);
-      
-      if (outcome === 'accepted') {
-        manualInstall.classList.remove('show');
-      }
-    } else {
-      Swal.fire({
-        title: 'Install App',
-        text: 'To install this app, look for the "Add to Home Screen" option in your browser\'s menu.',
-        icon: 'info',
-        background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
-        color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000'
-      });
-    }
-  });
-  
-  window.addEventListener('appinstalled', () => {
-    installModal.classList.remove('active');
-    manualInstall.classList.remove('show');
-    console.log('PWA was installed');
-  });
-});
