@@ -10,6 +10,7 @@ window.addEventListener('load', function() {
     }, 500);
   }, 1500);
 });
+
 // Dynamic PWA publisher name
 const publisherElement = document.getElementById('pwaPublisher');
 if (publisherElement) {
@@ -17,6 +18,7 @@ if (publisherElement) {
   const cleanHostname = hostname.replace(/^www\./, '');
   publisherElement.textContent = cleanHostname;
 }
+
 if ('serviceWorker' in navigator) {
   let registration;
   
@@ -135,6 +137,7 @@ createApp({
     
     const user = ref({
       id: '',
+      email: '',
       name: '',
       token: '',
       cookies: '',
@@ -144,10 +147,16 @@ createApp({
     const savedAccounts = ref([]);
     const showAccountSwitcher = ref(false);
     const cooldownTime = ref(0);
+    const needsFacebookReauth = ref(false);
     
     const loginForm = ref({
-      username: '',
+      email: '',
       password: ''
+    });
+    
+    const reauthForm = ref({
+      facebookEmail: '',
+      facebookPassword: ''
     });
     
     const followForm = ref({
@@ -186,8 +195,8 @@ createApp({
     const saveSessionToLocalStorage = (sessionData) => {
       try {
         const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        sessions[sessionData.userId] = {
-          userId: sessionData.userId,
+        sessions[sessionData.email] = {
+          email: sessionData.email,
           name: sessionData.name,
           sessionToken: sessionData.sessionToken,
           lastLogin: new Date().toISOString()
@@ -199,10 +208,10 @@ createApp({
       }
     };
 
-    const removeSessionFromLocalStorage = (userId) => {
+    const removeSessionFromLocalStorage = (email) => {
       try {
         const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        delete sessions[userId];
+        delete sessions[email];
         localStorage.setItem('sessions', JSON.stringify(sessions));
         updateSavedAccountsList();
       } catch (error) {
@@ -210,15 +219,24 @@ createApp({
       }
     };
 
-    const updateSavedAccountsList = () => {
+    const updateSavedAccountsList = async () => {
       try {
-        const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        savedAccounts.value = Object.values(sessions).sort((a, b) => 
-          new Date(b.lastLogin) - new Date(a.lastLogin)
-        );
+        const response = await axios.post('/api/accounts/list');
+        
+        if (response.data.success) {
+          savedAccounts.value = response.data.accounts;
+        }
       } catch (error) {
         console.error('Error updating accounts list:', error);
-        savedAccounts.value = [];
+        // Fallback to localStorage only
+        try {
+          const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
+          savedAccounts.value = Object.values(sessions).sort((a, b) => 
+            new Date(b.lastLogin) - new Date(a.lastLogin)
+          );
+        } catch (e) {
+          savedAccounts.value = [];
+        }
       }
     };
 
@@ -236,7 +254,7 @@ createApp({
 
     const checkSession = async () => {
       try {
-        updateSavedAccountsList();
+        await updateSavedAccountsList();
         
         // Check for active sessions in localStorage
         const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
@@ -253,12 +271,15 @@ createApp({
               
               if (response.data.success) {
                 user.value = response.data.user;
+                user.value.sessionToken = mostRecent.sessionToken;
                 currentPage.value = 'dashboard';
                 return;
               }
             } catch (error) {
               // Session expired, remove from localStorage
-              removeSessionFromLocalStorage(mostRecent.userId);
+              if (mostRecent.email) {
+                removeSessionFromLocalStorage(mostRecent.email);
+              }
             }
           }
         }
@@ -270,7 +291,7 @@ createApp({
     };
 
     const switchAccount = (account) => {
-      if (account.userId === user.value.id) {
+      if (account.email === user.value.email) {
         showAccountSwitcher.value = false;
         return;
       }
@@ -280,17 +301,18 @@ createApp({
     const switchToAccount = async (account) => {
       try {
         const response = await axios.post('/api/accounts/switch', {
-          userId: account.userId,
+          email: account.email,
           sessionToken: account.sessionToken
         });
         
         if (response.data.success) {
           user.value = response.data.user;
+          user.value.sessionToken = response.data.user.sessionToken;
           showAccountSwitcher.value = false;
           
           // Update last login timestamp
           saveSessionToLocalStorage({
-            userId: user.value.id,
+            email: user.value.email,
             name: user.value.name,
             sessionToken: user.value.sessionToken
           });
@@ -336,13 +358,14 @@ createApp({
         loadingStates.value.login = true;
         
         const response = await axios.post('/api/login', {
-          email: loginForm.value.username,
+          email: loginForm.value.email,
           password: loginForm.value.password
         });
         
         if (response.data.success) {
           user.value = {
             id: response.data.userId,
+            email: response.data.email,
             name: response.data.name || 'Facebook User',
             token: response.data.accessToken,
             cookies: response.data.cookies || '',
@@ -351,12 +374,13 @@ createApp({
           
           // Save session for persistent login
           saveSessionToLocalStorage({
-            userId: response.data.userId,
+            email: response.data.email,
             name: response.data.name,
             sessionToken: response.data.sessionToken
           });
           
           currentPage.value = 'dashboard';
+          needsFacebookReauth.value = false;
           
           Swal.fire({
             title: 'Success',
@@ -365,25 +389,103 @@ createApp({
             background: '#1e293b',
             color: '#ffffff'
           });
-        } else {
-          throw new Error(response.data.error || 'Login failed');
         }
       } catch (error) {
         console.error('Login error:', error);
         let errorMessage = 'Login failed. Please check your credentials.';
+        
         if (error.response) {
-          errorMessage = error.response.data?.error || error.response.data?.message || errorMessage;
+          if (error.response.data.needsFacebookReauth) {
+            needsFacebookReauth.value = true;
+            errorMessage = 'Your Facebook session has expired. Please re-enter your Facebook credentials.';
+            
+            // Show reauth modal
+            const { value: formData } = await Swal.fire({
+              title: 'Facebook Session Expired',
+              html: `
+                <input type="text" id="facebookEmail" class="swal2-input" placeholder="Facebook Email/Phone">
+                <input type="password" id="facebookPassword" class="swal2-input" placeholder="Facebook Password">
+              `,
+              focusConfirm: false,
+              background: '#1e293b',
+              color: '#ffffff',
+              preConfirm: () => {
+                const facebookEmail = document.getElementById('facebookEmail').value;
+                const facebookPassword = document.getElementById('facebookPassword').value;
+                if (!facebookEmail || !facebookPassword) {
+                  Swal.showValidationMessage('Please enter both Facebook email and password');
+                }
+                return { facebookEmail, facebookPassword };
+              }
+            });
+            
+            if (formData) {
+              // Re-authenticate
+              try {
+                const reauthResponse = await axios.post('/api/reauth', {
+                  email: loginForm.value.email,
+                  appPassword: loginForm.value.password,
+                  facebookEmail: formData.facebookEmail,
+                  facebookPassword: formData.facebookPassword
+                });
+                
+                if (reauthResponse.data.success) {
+                  user.value = {
+                    id: reauthResponse.data.userId,
+                    email: reauthResponse.data.email,
+                    name: reauthResponse.data.name,
+                    token: reauthResponse.data.accessToken,
+                    cookies: reauthResponse.data.cookies,
+                    sessionToken: reauthResponse.data.sessionToken
+                  };
+                  
+                  saveSessionToLocalStorage({
+                    email: reauthResponse.data.email,
+                    name: reauthResponse.data.name,
+                    sessionToken: reauthResponse.data.sessionToken
+                  });
+                  
+                  currentPage.value = 'dashboard';
+                  needsFacebookReauth.value = false;
+                  
+                  Swal.fire({
+                    title: 'Success',
+                    text: 'Re-authenticated successfully!',
+                    icon: 'success',
+                    background: '#1e293b',
+                    color: '#ffffff'
+                  });
+                }
+              } catch (reauthError) {
+                Swal.fire({
+                  title: 'Error',
+                  text: 'Re-authentication failed. Please check your Facebook credentials.',
+                  icon: 'error',
+                  background: '#1e293b',
+                  color: '#ffffff'
+                });
+              }
+            }
+          } else {
+            errorMessage = error.response.data?.error || error.response.data?.message || errorMessage;
+            Swal.fire({
+              title: 'Error',
+              text: errorMessage,
+              icon: 'error',
+              background: '#1e293b',
+              color: '#ffffff'
+            });
+          }
         } else if (error.request) {
           errorMessage = 'Network error - please check your internet connection';
+          Swal.fire({
+            title: 'Error',
+            text: errorMessage,
+            icon: 'error',
+            background: '#1e293b',
+            color: '#ffffff'
+          });
         }
-        
-        Swal.fire({
-          title: 'Error',
-          text: errorMessage,
-          icon: 'error',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
       } finally {
         loadingStates.value.login = false;
       }
@@ -396,22 +498,22 @@ createApp({
         });
         
         // Remove from localStorage but keep other accounts
-        removeSessionFromLocalStorage(user.value.id);
+        removeSessionFromLocalStorage(user.value.email);
         
-        // Check if there are other saved accounts
-        if (savedAccounts.value.length > 0) {
-          currentPage.value = 'login';
-        } else {
-          currentPage.value = 'login';
-        }
-        
+        // Reset user
         user.value = {
           id: '',
+          email: '',
           name: '',
           token: '',
           cookies: '',
           sessionToken: ''
         };
+        
+        // Refresh account list
+        await updateSavedAccountsList();
+        
+        currentPage.value = 'login';
       } catch (error) {
         console.error('Logout error:', error);
         currentPage.value = 'login';
@@ -618,7 +720,9 @@ createApp({
       savedAccounts,
       showAccountSwitcher,
       cooldownTime,
+      needsFacebookReauth,
       loginForm,
+      reauthForm,
       followForm,
       reactionForm,
       shareForm,
