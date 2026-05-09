@@ -1213,6 +1213,62 @@ app.post('/api/profile-guard', authenticate, async (req, res) => {
   }
 });
 
+app.get('/api/avatar/:facebookId', async (req, res) => {
+  try {
+    const { facebookId } = req.params;
+    let accessToken = '350685531728|62f8ce9f74b12f84c123cc23437a4a32'; // public fallback
+    
+    // Try to get authenticated user's token
+    let userId = null;
+    
+    // Check session first
+    if (req.session && req.session.email) {
+      const user = await User.findOne({ email: req.session.email });
+      if (user && user.accessToken) {
+        accessToken = user.accessToken;
+      }
+    }
+    
+    // If no session, check authorization header
+    if (!userId && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      const sessionToken = authHeader.split(' ')[1];
+      const payload = verifySessionToken(sessionToken);
+      
+      if (payload && payload.email) {
+        const user = await User.findOne({ email: payload.email });
+        if (user && user.accessToken) {
+          accessToken = user.accessToken;
+        }
+      }
+    }
+    
+    // Fetch and proxy the image
+    const imageUrl = `https://graph.facebook.com/${facebookId}/picture?width=80&height=80&access_token=${accessToken}`;
+    const response = await axios({
+      method: 'get',
+      url: imageUrl,
+      responseType: 'stream',
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    // Set caching headers
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Content-Type', response.headers['content-type']);
+    
+    // Pipe the image to response
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Avatar fetch error:', error.message);
+    // Fallback to default avatar
+    const name = req.query.name || 'User';
+    res.redirect(`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0ea5e9&color=fff`);
+  }
+});
+
 // Serve frontend
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html');
