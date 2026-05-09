@@ -10,7 +10,13 @@ window.addEventListener('load', function() {
     }, 500);
   }, 1500);
 });
-
+// Dynamic PWA publisher name
+const publisherElement = document.getElementById('pwaPublisher');
+if (publisherElement) {
+  const hostname = window.location.hostname;
+  const cleanHostname = hostname.replace(/^www\./, '');
+  publisherElement.textContent = cleanHostname;
+}
 if ('serviceWorker' in navigator) {
   let registration;
   
