@@ -154,7 +154,7 @@
           </div>
           <div class="p-6">
             <div class="flex items-center mb-6">
-              <img :src="getProfilePictureUrl(user.id, user.token)" 
+              <img :src="getProfilePictureUrl(user.id)" 
                    @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=0ea5e9&color=fff'"
                    class="w-16 h-16 rounded-full mr-4 border-2 border-white dark:border-dark-800 shadow object-cover">
               <div>
@@ -434,7 +434,7 @@
           </div>
           <div class="p-6">
             <div class="text-center mb-6">
-              <img :src="getProfilePictureUrl(user.id, user.token)" 
+              <img :src="getProfilePictureUrl(user.id)" 
                    @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=0ea5e9&color=fff'"
                    class="w-24 h-24 rounded-full mx-auto mb-4 border-2 border-white dark:border-dark-800 shadow object-cover">
               <h3 class="text-lg font-semibold">{{ user.name }}</h3>
