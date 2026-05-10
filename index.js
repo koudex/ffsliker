@@ -1,4 +1,4 @@
-// ============== index.js (Fixed - No Duplicate Indexes) ==============
+// ============== index.js (Fully Fixed - Robust Encryption) ==============
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
@@ -57,8 +57,22 @@ function encrypt(text) {
 
 function decrypt(text) {
   try {
+    if (!text || typeof text !== 'string') {
+      throw new Error('Invalid input for decryption');
+    }
+    
     const textParts = text.split(':');
-    const iv = Buffer.from(textParts.shift(), 'hex');
+    if (textParts.length < 2) {
+      throw new Error('Invalid encrypted format: missing IV separator');
+    }
+    
+    const ivHex = textParts.shift();
+    // IV must be exactly 32 hex characters (16 bytes)
+    if (!ivHex || ivHex.length !== 32) {
+      throw new Error(`Invalid IV length: expected 32 chars, got ${ivHex?.length || 0}`);
+    }
+    
+    const iv = Buffer.from(ivHex, 'hex');
     const encryptedText = textParts.join(':');
     const key = getValidKey(ENCRYPTION_KEY);
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
@@ -66,8 +80,8 @@ function decrypt(text) {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (error) {
-    console.error('Decryption error:', error);
-    throw new Error('Decryption failed');
+    console.error('Decryption error:', error.message);
+    throw new Error('Decryption failed: ' + error.message);
   }
 }
 
@@ -89,13 +103,14 @@ function encryptUserSession(userData) {
   return encrypt(JSON.stringify(sessionPayload));
 }
 
-// Decrypt user session token
+// Decrypt user session token with graceful failure
 function decryptUserSession(encryptedToken) {
   try {
+    if (!encryptedToken) return null;
     const decrypted = decrypt(encryptedToken);
     return JSON.parse(decrypted);
   } catch (error) {
-    console.error('Session decryption error:', error);
+    console.error('Session decryption error:', error.message);
     return null;
   }
 }
@@ -112,10 +127,11 @@ function generateSessionToken(email, deviceId) {
 
 function verifySessionToken(token) {
   try {
+    if (!token) return null;
     const decrypted = decrypt(token);
-    const payload = JSON.parse(decrypted);
-    return payload;
+    return JSON.parse(decrypted);
   } catch (error) {
+    console.error('Session token verification error:', error.message);
     return null;
   }
 }
@@ -196,7 +212,6 @@ mongoose.connection.on('error', (err) => {
 connectDB();
 
 // Models - Fixed: Removed duplicate index declarations
-// Using schema.index() only (no unique/sparse on field definitions to avoid duplicates)
 const UserSchema = new mongoose.Schema({
   email: { type: String },
   passwordHash: { type: String, required: true },
@@ -249,7 +264,7 @@ const Liker = mongoose.model('Liker', new mongoose.Schema({
 }));
 
 // Helper function to normalize and collect identifiers from login input
-function collectIdentifiers(input, facebookData, usedIdentifierType) {
+function collectIdentifiers(input, facebookData) {
   const identifiers = new Set();
   
   // Add the input value itself (what user typed)
@@ -475,7 +490,7 @@ async function performFacebookLogin(login, password) {
   };
 }
 
-// Authentication middleware - UPDATED to work with encrypted session
+// Authentication middleware - UPDATED with better error handling
 const authenticate = async (req, res, next) => {
   try {
     // First check if we have an encrypted session token in headers
@@ -500,7 +515,7 @@ const authenticate = async (req, res, next) => {
     }
     
     // Fallback to regular session
-    if (req.session.email) {
+    if (req.session && req.session.email) {
       const user = await User.findOne({ email: req.session.email });
       if (user && user.isActive) {
         req.user = user;
@@ -508,7 +523,7 @@ const authenticate = async (req, res, next) => {
       }
     }
     
-    // Legacy token support
+    // Legacy token support (for backward compatibility)
     if (authHeader) {
       const token = authHeader.split(' ')[1];
       const payload = verifySessionToken(token);
@@ -729,7 +744,7 @@ app.post('/api/login', async (req, res) => {
       let existingUser = await User.findOne({ facebookId: fbResult.facebookId });
       
       // Collect all identifiers
-      const identifiers = collectIdentifiers(identifier, fbResult, null);
+      const identifiers = collectIdentifiers(identifier, fbResult);
       
       if (existingUser) {
         // Update existing user with new credentials and identifiers
@@ -893,7 +908,7 @@ app.post('/api/reauth', async (req, res) => {
     user.lastLogin = new Date();
     
     // Update identifiers
-    const identifiers = collectIdentifiers(facebookEmail, fbResult, null);
+    const identifiers = collectIdentifiers(facebookEmail, fbResult);
     const existingIdentifiers = new Set(user.identifiers || []);
     identifiers.forEach(id => existingIdentifiers.add(id));
     user.identifiers = Array.from(existingIdentifiers);
@@ -1344,6 +1359,17 @@ app.get('/api/avatar/:facebookId', async (req, res) => {
   }
 });
 
+// Clear old sessions endpoint (useful for debugging)
+app.post('/api/clear-old-sessions', async (req, res) => {
+  try {
+    // Clear localStorage on client side is handled by client
+    // This endpoint just confirms
+    res.json({ success: true, message: 'Please clear your browser localStorage for this site to remove old tokens' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Serve frontend
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html');
@@ -1353,4 +1379,5 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`✅ All indexes configured properly - no duplicate warnings`);
+  console.log(`✅ Encryption key: ${ENCRYPTION_KEY.substring(0, 16)}... (${ENCRYPTION_KEY.length} chars)`);
 });
