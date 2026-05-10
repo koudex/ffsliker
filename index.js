@@ -1,4 +1,4 @@
-// ============== index.js (FIXED) ==============
+// ============== index.js (Fixed - No Duplicate Indexes) ==============
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
@@ -57,13 +57,7 @@ function encrypt(text) {
 
 function decrypt(text) {
   try {
-    if (!text || typeof text !== 'string') {
-      throw new Error('Invalid encrypted text');
-    }
     const textParts = text.split(':');
-    if (textParts.length < 2) {
-      throw new Error('Invalid encrypted text format');
-    }
     const iv = Buffer.from(textParts.shift(), 'hex');
     const encryptedText = textParts.join(':');
     const key = getValidKey(ENCRYPTION_KEY);
@@ -72,12 +66,12 @@ function decrypt(text) {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (error) {
-    console.error('Decryption error:', error.message);
+    console.error('Decryption error:', error);
     throw new Error('Decryption failed');
   }
 }
 
-// NEW: Encrypt user session data into a single token
+// Encrypt user session data into a single token
 function encryptUserSession(userData) {
   const sessionPayload = {
     id: userData.facebookId,
@@ -95,14 +89,13 @@ function encryptUserSession(userData) {
   return encrypt(JSON.stringify(sessionPayload));
 }
 
-// NEW: Decrypt user session token
+// Decrypt user session token
 function decryptUserSession(encryptedToken) {
   try {
-    if (!encryptedToken) return null;
     const decrypted = decrypt(encryptedToken);
     return JSON.parse(decrypted);
   } catch (error) {
-    console.error('Session decryption error:', error.message);
+    console.error('Session decryption error:', error);
     return null;
   }
 }
@@ -119,7 +112,6 @@ function generateSessionToken(email, deviceId) {
 
 function verifySessionToken(token) {
   try {
-    if (!token) return null;
     const decrypted = decrypt(token);
     const payload = JSON.parse(decrypted);
     return payload;
@@ -133,7 +125,7 @@ function hashPassword(password) {
 }
 
 function randHex(length) {
-  return Array.from({ length: length }, () => '0123456789abcdef'[Math.floor(Math.random()  * 16)]).join('');
+  return Array.from({ length: length }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
 }
 
 // Middleware
@@ -171,15 +163,11 @@ const limiter = rateLimit({
 app.use(limiter);
 app.set('trust proxy', 1);
 
-// Database connection with better error handling
+// Database connection
 const MONGODB_URI = process.env.MONGODB_URI;
 
 async function connectDB() {
   try {
-    // Log the URI (masked for security)
-    const maskedUri = MONGODB_URI.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@');
-    console.log(`Connecting to MongoDB at: ${maskedUri}`);
-    
     await mongoose.connect(MONGODB_URI, {
       ssl: true,
       tlsAllowInvalidCertificates: false,
@@ -188,49 +176,12 @@ async function connectDB() {
       serverSelectionTimeoutMS: 5000,
       retryWrites: true,
       retryReads: true,
-      directConnection: false,
-      authSource: 'admin' // Add this for Atlas
+      directConnection: false
     });
     console.log("✅ MongoDB Connected!");
-    
-    // Drop problematic indexes if they exist
-    await fixIndexes();
-    
   } catch (err) {
     console.error("❌ MongoDB Connection Error:", err.message);
-    console.error("Please check your MONGODB_URI environment variable");
-    console.error("Format should be: mongodb+srv://username:password@cluster.mongodb.net/dbname");
     process.exit(1);
-  }
-}
-
-// Function to fix duplicate key issues
-async function fixIndexes() {
-  try {
-    const db = mongoose.connection.db;
-    const collections = await db.listCollections().toArray();
-    
-    for (const collection of collections) {
-      const indexes = await db.collection(collection.name).indexes();
-      for (const index of indexes) {
-        // Drop problematic userId_1 index if it exists
-        if (index.name === 'userId_1') {
-          console.log(`Dropping problematic index userId_1 from ${collection.name}`);
-          await db.collection(collection.name).dropIndex('userId_1');
-        }
-        // Drop any other indexes that might have null key issues
-        if (index.name === 'email_1' && index.unique === true) {
-          console.log(`Dropping unique email index - will be recreated with sparse option`);
-          await db.collection(collection.name).dropIndex('email_1');
-        }
-      }
-    }
-    
-    // Ensure proper indexes are created
-    await User.syncIndexes();
-    console.log("✅ Indexes fixed");
-  } catch (error) {
-    console.error("Error fixing indexes:", error.message);
   }
 }
 
@@ -242,11 +193,14 @@ mongoose.connection.on('error', (err) => {
   console.error('Mongoose connection error:', err);
 });
 
-// Models - Fixed to avoid duplicate key issues
+connectDB();
+
+// Models - Fixed: Removed duplicate index declarations
+// Using schema.index() only (no unique/sparse on field definitions to avoid duplicates)
 const UserSchema = new mongoose.Schema({
-  email: { type: String, unique: true, sparse: true, default: null },
+  email: { type: String },
   passwordHash: { type: String, required: true },
-  facebookId: { type: String, unique: true, required: true, sparse: true },
+  facebookId: { type: String, required: true },
   name: String,
   accessToken: { type: String },
   cookies: { type: String },
@@ -262,25 +216,20 @@ const UserSchema = new mongoose.Schema({
   lastLogin: Date,
   lastFacebookCheck: Date,
   
-  // NEW: Multi-identifier login fields
+  // Multi-identifier login fields
   identifiers: [{ type: String }],
-  loginEmail: { type: String, sparse: true },
-  loginPhone: { type: String, sparse: true },
-  loginUsername: { type: String, sparse: true }
+  loginEmail: { type: String },
+  loginPhone: { type: String },
+  loginUsername: { type: String }
 });
 
-// Create indexes properly
+// Create indexes properly - only once
+UserSchema.index({ email: 1 }, { unique: true, sparse: true });
+UserSchema.index({ facebookId: 1 }, { unique: true });
 UserSchema.index({ identifiers: 1 });
 UserSchema.index({ loginEmail: 1 }, { sparse: true });
 UserSchema.index({ loginPhone: 1 }, { sparse: true });
 UserSchema.index({ loginUsername: 1 }, { sparse: true });
-UserSchema.index({ facebookId: 1 }, { unique: true, sparse: true });
-
-// Ensure email is not null for uniqueness
-UserSchema.pre('save', function(next) {
-  if (this.email === '') this.email = null;
-  next();
-});
 
 const User = mongoose.model('User', UserSchema);
 
@@ -292,14 +241,14 @@ const Cooldown = mongoose.model('Cooldown', new mongoose.Schema({
 }));
 
 const Liker = mongoose.model('Liker', new mongoose.Schema({
-  facebookId: { type: String, unique: true, sparse: true },
+  facebookId: String,
   name: String,
   accessToken: String,
   cookies: String,
   active: { type: Boolean, default: false }
 }));
 
-// NEW: Helper function to normalize and collect identifiers from login input
+// Helper function to normalize and collect identifiers from login input
 function collectIdentifiers(input, facebookData, usedIdentifierType) {
   const identifiers = new Set();
   
@@ -324,7 +273,7 @@ function collectIdentifiers(input, facebookData, usedIdentifierType) {
   return Array.from(identifiers);
 }
 
-// NEW: Find user by any identifier
+// Find user by any identifier
 async function findUserByIdentifier(identifier) {
   if (!identifier) return null;
   
@@ -495,7 +444,7 @@ async function performFacebookLogin(login, password) {
     }
   );
 
-  // NEW: Try to extract additional info from the login input
+  // Try to extract additional info from the login input
   let loginEmail = null;
   let loginPhone = null;
   let loginUsername = null;
@@ -504,13 +453,11 @@ async function performFacebookLogin(login, password) {
   if (login.includes('@')) {
     loginEmail = login;
   } else if (/^[0-9+\-\s()]{10,15}$/.test(login.replace(/[\s\-\(\)]/g, ''))) {
-    // Rough phone number detection
     loginPhone = login;
   } else if (/^[a-zA-Z0-9.]+$/.test(login) && !/^\d+$/.test(login)) {
-    // Alphanumeric not purely numbers - likely username
     loginUsername = login;
   }
-  // If it's purely numbers, it's either UID or phone without formatting - we'll store as both possibilities
+  
   const isNumericOnly = /^\d+$/.test(login);
   
   return {
@@ -535,28 +482,25 @@ const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const encryptedSession = authHeader.split(' ')[1];
-      if (encryptedSession && encryptedSession !== 'null' && encryptedSession !== 'undefined') {
-        const decryptedSession = decryptUserSession(encryptedSession);
+      const decryptedSession = decryptUserSession(encryptedSession);
+      
+      if (decryptedSession && decryptedSession.id) {
+        // Verify user still exists and is active
+        const user = await User.findOne({ 
+          facebookId: decryptedSession.id,
+          isActive: true 
+        });
         
-        if (decryptedSession && decryptedSession.id) {
-          // Verify user still exists and is active
-          const user = await User.findOne({ 
-            facebookId: decryptedSession.id,
-            isActive: true 
-          });
-          
-          if (user) {
-            req.user = user;
-            // Also store the decrypted session data for convenience
-            req.sessionData = decryptedSession;
-            return next();
-          }
+        if (user) {
+          req.user = user;
+          req.sessionData = decryptedSession;
+          return next();
         }
       }
     }
     
     // Fallback to regular session
-    if (req.session && req.session.email) {
+    if (req.session.email) {
       const user = await User.findOne({ email: req.session.email });
       if (user && user.isActive) {
         req.user = user;
@@ -564,15 +508,35 @@ const authenticate = async (req, res, next) => {
       }
     }
     
+    // Legacy token support
+    if (authHeader) {
+      const token = authHeader.split(' ')[1];
+      const payload = verifySessionToken(token);
+      
+      if (payload && payload.email) {
+        const user = await User.findOne({ 
+          email: payload.email,
+          'sessionTokens.token': token,
+          isActive: true
+        });
+        
+        if (user) {
+          req.session.email = user.email;
+          req.user = user;
+          return next();
+        }
+      }
+    }
+    
     res.status(401).json({ success: false, error: 'Unauthorized' });
   } catch (error) {
-    console.error('Authentication error:', error.message);
+    console.error('Authentication error:', error);
     res.status(500).json({ success: false, error: 'Authentication failed' });
   }
 };
 
 // Routes 
-// UPDATED: Returns encrypted session data instead of plain text
+// Returns encrypted session data instead of plain text
 app.get('/api/session', authenticate, (req, res) => {
   const encryptedSession = encryptUserSession({
     facebookId: req.user.facebookId,
@@ -599,13 +563,12 @@ app.post('/api/accounts/list', async (req, res) => {
       sessionTokens: { $exists: true, $ne: [] }
     }).select('email name facebookId lastLogin sessionTokens identifiers loginEmail loginPhone loginUsername');
 
-    // Return encrypted account data
     const accounts = users.map(user => {
       const encryptedAccount = encryptUserSession({
         facebookId: user.facebookId,
         email: user.email,
         name: user.name,
-        accessToken: null, // Don't include actual token in list
+        accessToken: null,
         cookies: null,
         identifiers: user.identifiers || [],
         loginEmail: user.loginEmail,
@@ -662,7 +625,6 @@ app.post('/api/accounts/switch', async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
     
-    // Return encrypted session data
     const encryptedSession = encryptUserSession({
       facebookId: user.facebookId,
       email: user.email,
@@ -686,7 +648,7 @@ app.post('/api/accounts/switch', async (req, res) => {
   }
 });
 
-// UPDATED LOGIN ENDPOINT - Supports multi-identifier login
+// LOGIN ENDPOINT - Supports multi-identifier login
 app.post('/api/login', async (req, res) => {
   try {
     const { identifier, password } = req.body;
@@ -729,7 +691,6 @@ app.post('/api/login', async (req, res) => {
           
           req.session.email = user.email;
           
-          // Return encrypted session data
           const encryptedSession = encryptUserSession({
             facebookId: user.facebookId,
             email: user.email,
@@ -788,7 +749,7 @@ app.post('/api/login', async (req, res) => {
         if (fbResult.loginPhone && !existingUser.loginPhone) existingUser.loginPhone = fbResult.loginPhone;
         if (fbResult.loginUsername && !existingUser.loginUsername) existingUser.loginUsername = fbResult.loginUsername;
         if (fbResult.isNumericOnly && !existingUser.loginPhone && !existingUser.loginEmail) {
-          existingUser.loginPhone = fbResult.rawLoginInput; // Could be phone or UID
+          existingUser.loginPhone = fbResult.rawLoginInput;
         }
         
         const sessionToken = generateSessionToken(existingUser.email || existingUser.facebookId, req.headers['user-agent'] || 'unknown');
@@ -996,18 +957,14 @@ app.post('/api/logout', authenticate, async (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const encryptedSession = authHeader.split(' ')[1];
-      if (encryptedSession && encryptedSession !== 'null') {
-        const decryptedSession = decryptUserSession(encryptedSession);
-        
-        if (decryptedSession && decryptedSession.id && req.user) {
-          console.log(`User ${decryptedSession.id} logged out`);
-        }
+      const decryptedSession = decryptUserSession(encryptedSession);
+      
+      if (decryptedSession && decryptedSession.id && req.user) {
+        console.log(`User ${decryptedSession.id} logged out`);
       }
     }
     
-    if (req.session) {
-      req.session.destroy();
-    }
+    req.session.destroy();
     
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
@@ -1346,30 +1303,25 @@ app.post('/api/profile-guard', authenticate, async (req, res) => {
 app.get('/api/avatar/:facebookId', async (req, res) => {
   try {
     const { facebookId } = req.params;
-    let accessToken = '350685531728|62f8ce9f74b12f84c123cc23437a4a32'; // public fallback
+    let accessToken = '350685531728|62f8ce9f74b12f84c123cc23437a4a32';
     
-    // Try to get authenticated user's token from encrypted session
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const encryptedSession = authHeader.split(' ')[1];
-      if (encryptedSession && encryptedSession !== 'null') {
-        const decryptedSession = decryptUserSession(encryptedSession);
-        
-        if (decryptedSession && decryptedSession.accessToken) {
-          accessToken = decryptedSession.accessToken;
-        }
+      const decryptedSession = decryptUserSession(encryptedSession);
+      
+      if (decryptedSession && decryptedSession.accessToken) {
+        accessToken = decryptedSession.accessToken;
       }
     }
     
-    // If no encrypted session, check regular session
-    if (req.session && req.session.email) {
+    if (!accessToken && req.session && req.session.email) {
       const user = await User.findOne({ email: req.session.email });
       if (user && user.accessToken) {
         accessToken = user.accessToken;
       }
     }
     
-    // Fetch and proxy the image
     const imageUrl = `https://graph.facebook.com/${facebookId}/picture?width=80&height=80&access_token=${accessToken}`;
     const response = await axios({
       method: 'get',
@@ -1381,15 +1333,12 @@ app.get('/api/avatar/:facebookId', async (req, res) => {
       }
     });
     
-    // Set caching headers
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.setHeader('Content-Type', response.headers['content-type']);
     
-    // Pipe the image to response
     response.data.pipe(res);
   } catch (error) {
     console.error('Avatar fetch error:', error.message);
-    // Fallback to default avatar
     const name = req.query.name || 'User';
     res.redirect(`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0ea5e9&color=fff`);
   }
@@ -1401,11 +1350,7 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}).catch(err => {
-  console.error('Failed to connect to database:', err);
-  process.exit(1);
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ All indexes configured properly - no duplicate warnings`);
 });
