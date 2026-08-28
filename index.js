@@ -327,6 +327,15 @@ async function extractPostID(url) {
   const cleanUrl = url.split(/[?#]/)[0].replace(/\/$/, '');
   
   const patterns = [
+    {
+      regex: /facebook\.com\/reel\/(\d+)/i,
+      handler: async ([, postId]) => postId
+    },
+
+    {
+      regex: /facebook\.com\/share\/v\/([\w\d]+)/i,
+      handler: async ([, postId]) => postId
+    },  
     { 
       regex: /facebook\.com\/groups\/(\d+|[^\/]+)\/(?:permalink|posts)\/(\d+)/i,
       handler: async ([, groupIdOrName, postId]) => {
