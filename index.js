@@ -1,185 +1,103 @@
-// ============== index.js (Fully Fixed - Robust Encryption) ==============
+/**
+ * FFSLiker NEXUS - Backend Server
+ * @module server
+ * 
+ * Features:
+ * - Express + MongoDB
+ * - Secure session management (HTTP-only cookies)
+ * - Pool system coordination
+ * - SSE real-time updates
+ * - Soft logout architecture
+ * - Multi-identifier login support
+ * 
+ * @requires express
+ * @requires mongoose
+ * @requires express-session
+ */
+
+// ================================================================
+// 1. ENVIRONMENT & CONFIGURATION
+// ================================================================
+
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const { v4: uuidv4 } = require('uuid');
-const crypto = require('crypto');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
+const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 11000;
 
-// Validate environment variables at startup
+// ================================================================
+// 2. ENVIRONMENT VALIDATION
+// ================================================================
+
 function validateEnv() {
-  const requiredVars = ['MONGODB_URI'];
+  const requiredVars = ['MONGODB_URI', 'SESSION_SECRET'];
   for (const varName of requiredVars) {
     if (!process.env[varName]) {
       console.error(`❌ Missing required environment variable: ${varName}`);
       process.exit(1);
     }
   }
-
-  if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length !== 64) {
-    console.error('❌ ENCRYPTION_KEY must be 64-character hex string (32 bytes)');
-    process.exit(1);
-  }
 }
-
 validateEnv();
 
-// Encryption configuration
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
-const IV_LENGTH = 16;
+// ================================================================
+// 3. MIDDLEWARE
+// ================================================================
 
-function getValidKey(key) {
-  if (key.length === 64 && /^[0-9a-f]+$/i.test(key)) {
-    return Buffer.from(key, 'hex');
-  }
-  return crypto.createHash('sha256').update(key).digest();
-}
-
-function encrypt(text) {
-  try {
-    const iv = crypto.randomBytes(IV_LENGTH);
-    const key = getValidKey(ENCRYPTION_KEY);
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
-  } catch (error) {
-    console.error('Encryption error:', error);
-    throw new Error('Encryption failed');
-  }
-}
-
-function decrypt(text) {
-  try {
-    if (!text || typeof text !== 'string') {
-      throw new Error('Invalid input for decryption');
-    }
-    
-    const textParts = text.split(':');
-    if (textParts.length < 2) {
-      throw new Error('Invalid encrypted format: missing IV separator');
-    }
-    
-    const ivHex = textParts.shift();
-    // IV must be exactly 32 hex characters (16 bytes)
-    if (!ivHex || ivHex.length !== 32) {
-      throw new Error(`Invalid IV length: expected 32 chars, got ${ivHex?.length || 0}`);
-    }
-    
-    const iv = Buffer.from(ivHex, 'hex');
-    const encryptedText = textParts.join(':');
-    const key = getValidKey(ENCRYPTION_KEY);
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (error) {
-    console.error('Decryption error:', error.message);
-    throw new Error('Decryption failed: ' + error.message);
-  }
-}
-
-// Encrypt user session data into a single token
-function encryptUserSession(userData) {
-  const sessionPayload = {
-    id: userData.facebookId,
-    email: userData.email,
-    name: userData.name,
-    accessToken: userData.accessToken,
-    cookies: userData.cookies,
-    identifiers: userData.identifiers || [],
-    loginEmail: userData.loginEmail,
-    loginPhone: userData.loginPhone,
-    loginUsername: userData.loginUsername,
-    timestamp: Date.now(),
-    nonce: crypto.randomBytes(16).toString('hex')
-  };
-  return encrypt(JSON.stringify(sessionPayload));
-}
-
-// Decrypt user session token with graceful failure
-function decryptUserSession(encryptedToken) {
-  try {
-    if (!encryptedToken) return null;
-    const decrypted = decrypt(encryptedToken);
-    return JSON.parse(decrypted);
-  } catch (error) {
-    console.error('Session decryption error:', error.message);
-    return null;
-  }
-}
-
-function generateSessionToken(email, deviceId) {
-  const payload = {
-    email,
-    deviceId,
-    timestamp: Date.now(),
-    random: crypto.randomBytes(16).toString('hex')
-  };
-  return encrypt(JSON.stringify(payload));
-}
-
-function verifySessionToken(token) {
-  try {
-    if (!token) return null;
-    const decrypted = decrypt(token);
-    return JSON.parse(decrypted);
-  } catch (error) {
-    console.error('Session token verification error:', error.message);
-    return null;
-  }
-}
-
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password).digest('hex');
-}
-
-function randHex(length) {
-  return Array.from({ length: length }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
-}
-
-// Middleware
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.static('public'));
 
+// Rate limiting
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Session configuration with HTTP-only cookies (SECURE)
 app.use(session({
-  secret: process.env.SESSION_SECRET || crypto.randomBytes(64).toString('hex'),
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
     mongoUrl: process.env.MONGODB_URI,
     ttl: 14 * 24 * 60 * 60,
-    autoRemove: 'native',
-    crypto: {
-      secret: process.env.STORE_SECRET || crypto.randomBytes(32).toString('hex')
-    }
+    autoRemove: 'native'
   }),
   cookie: {
-    maxAge: 14 * 24 * 60 * 60 * 1000,
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    sameSite: 'lax',
+    maxAge: 14 * 24 * 60 * 60 * 1000
   }
 }));
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100
-});
-app.use(limiter);
+app.use('/api/login', authLimiter);
+app.use('/api/reauth', authLimiter);
+app.use('/api/', apiLimiter);
 app.set('trust proxy', 1);
 
-// Database connection
+// ================================================================
+// 4. DATABASE CONNECTION
+// ================================================================
+
 const MONGODB_URI = process.env.MONGODB_URI;
 
 async function connectDB() {
@@ -191,8 +109,7 @@ async function connectDB() {
       socketTimeoutMS: 45000,
       serverSelectionTimeoutMS: 5000,
       retryWrites: true,
-      retryReads: true,
-      directConnection: false
+      retryReads: true
     });
     console.log("✅ MongoDB Connected!");
   } catch (err) {
@@ -201,201 +118,113 @@ async function connectDB() {
   }
 }
 
-mongoose.connection.on('connected', () => {
-  console.log('Mongoose connected to DB cluster');
-});
-
-mongoose.connection.on('error', (err) => {
-  console.error('Mongoose connection error:', err);
-});
+mongoose.connection.on('connected', () => console.log('Mongoose connected to DB cluster'));
+mongoose.connection.on('error', (err) => console.error('Mongoose connection error:', err));
 
 connectDB();
 
-// Models - Fixed: Removed duplicate index declarations
+// ================================================================
+// 5. DATABASE MODELS
+// ================================================================
+
+// User schema - stores ALL identifiers on first login
 const UserSchema = new mongoose.Schema({
-  email: { type: String },
+  email: { type: String, sparse: true },
+  facebookId: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  accessToken: { type: String, select: false },
+  cookies: { type: String, select: false },
   passwordHash: { type: String, required: true },
-  facebookId: { type: String, required: true },
-  name: String,
-  accessToken: { type: String },
-  cookies: { type: String },
-  deviceId: String,
-  machineId: String,
-  sessionTokens: [{ 
-    token: String,
-    deviceId: String,
-    createdAt: { type: Date, default: Date.now }
-  }],
+  identifiers: { type: [String], default: [] }, // email, username, facebookId
+  sessionToken: { type: String, select: false },
   isActive: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now },
   lastLogin: Date,
-  lastFacebookCheck: Date,
-  
-  // Multi-identifier login fields
-  identifiers: [{ type: String }],
-  loginEmail: { type: String },
-  loginPhone: { type: String },
-  loginUsername: { type: String }
+  createdAt: { type: Date, default: Date.now },
+  // Additional identifiers captured on first login
+  username: { type: String, sparse: true },
+  loginEmail: { type: String, sparse: true },
+  // Phone intentionally NOT stored for privacy
 });
 
-// Create indexes properly - only once
 UserSchema.index({ email: 1 }, { unique: true, sparse: true });
 UserSchema.index({ facebookId: 1 }, { unique: true });
 UserSchema.index({ identifiers: 1 });
+UserSchema.index({ username: 1 }, { sparse: true });
 UserSchema.index({ loginEmail: 1 }, { sparse: true });
-UserSchema.index({ loginPhone: 1 }, { sparse: true });
-UserSchema.index({ loginUsername: 1 }, { sparse: true });
 
 const User = mongoose.model('User', UserSchema);
 
-const Cooldown = mongoose.model('Cooldown', new mongoose.Schema({
-  facebookId: String,
+// Cooldown tracking
+const CooldownSchema = new mongoose.Schema({
+  facebookId: { type: String, required: true, unique: true },
   lastFollow: Date,
   lastReaction: Date,
-  lastShare: Date
-}));
+  lastShare: Date,
+  updatedAt: { type: Date, default: Date.now }
+});
+const Cooldown = mongoose.model('Cooldown', CooldownSchema);
 
-const Liker = mongoose.model('Liker', new mongoose.Schema({
-  facebookId: String,
+// Liker pool
+const LikerSchema = new mongoose.Schema({
+  facebookId: { type: String, required: true, unique: true },
   name: String,
-  accessToken: String,
-  cookies: String,
-  active: { type: Boolean, default: false }
-}));
+  accessToken: { type: String, required: true },
+  cookies: { type: String, required: true },
+  active: { type: Boolean, default: true },
+  lastUsed: Date,
+  createdAt: { type: Date, default: Date.now }
+});
+const Liker = mongoose.model('Liker', LikerSchema);
 
-// Helper function to normalize and collect identifiers from login input
+// Session tracking (server-side)
+const SessionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  sessionToken: { type: String, unique: true },
+  deviceId: String,
+  createdAt: { type: Date, default: Date.now, expires: '14d' }
+});
+const Session = mongoose.model('Session', SessionSchema);
+
+// ================================================================
+// 6. HELPERS
+// ================================================================
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 function collectIdentifiers(input, facebookData) {
   const identifiers = new Set();
-  
-  // Add the input value itself (what user typed)
   if (input) identifiers.add(input.toLowerCase());
-  
-  // Add Facebook ID
   if (facebookData.uid) identifiers.add(facebookData.uid);
-  
-  // Add email if available
   if (facebookData.email) identifiers.add(facebookData.email.toLowerCase());
-  
-  // Add phone if available
-  if (facebookData.phone) identifiers.add(facebookData.phone);
-  
-  // Add username if available
   if (facebookData.username) identifiers.add(facebookData.username.toLowerCase());
-  
-  // Add profile name (for convenience, though not unique)
   if (facebookData.name) identifiers.add(facebookData.name.toLowerCase());
-  
   return Array.from(identifiers);
 }
 
-// Find user by any identifier
 async function findUserByIdentifier(identifier) {
   if (!identifier) return null;
-  
-  const normalizedIdentifier = identifier.toLowerCase();
-  
-  // Search using the identifiers array
-  return await User.findOne({ 
-    identifiers: normalizedIdentifier,
-    isActive: true 
+  const normalized = identifier.toLowerCase();
+  return await User.findOne({
+    $or: [
+      { email: normalized },
+      { facebookId: normalized },
+      { username: normalized },
+      { loginEmail: normalized },
+      { identifiers: normalized }
+    ],
+    isActive: true
   });
 }
 
-// Helper functions 
-const checkCooldown = async (facebookId, toolType) => {
-  const cooldown = await Cooldown.findOne({ facebookId });
-  const now = new Date();
-  const cooldownMinutes = 30;
-  
-  if (!cooldown) {
-    await Cooldown.create({ facebookId, [toolType]: now });
-    return false;
-  }
-
-  const lastUsed = new Date(cooldown[toolType]) || new Date(0);
-  const diffMinutes = (now - lastUsed) / (1000 * 60);
-
-  if (diffMinutes < cooldownMinutes) {
-    return Math.ceil(cooldownMinutes - diffMinutes);
-  }
-
-  await Cooldown.updateOne({ facebookId }, { [toolType]: now });
-  return false;
-};
-
-async function extractPostID(url) {
-  const cleanUrl = url.split(/[?#]/)[0].replace(/\/$/, '');
-  
-  const patterns = [
-    {
-      regex: /facebook\.com\/reel\/(\d+)/i,
-      handler: async ([, postId]) => postId
-    },
-
-    {
-      regex: /facebook\.com\/share\/v\/([\w\d]+)/i,
-      handler: async ([, postId]) => postId
-    },  
-    { 
-      regex: /facebook\.com\/groups\/(\d+|[^\/]+)\/(?:permalink|posts)\/(\d+)/i,
-      handler: async ([, groupIdOrName, postId]) => {
-        if (/^\d+$/.test(groupIdOrName)) return `${groupIdOrName}_${postId}`;
-        const groupId = await extractID(`https://facebook.com/groups/${groupIdOrName}`);
-        return groupId ? `${groupId}_${postId}` : postId;
-      }
-    },
-    
-    { 
-      regex: /facebook\.com\/(\d+|[^\/]+)\/(posts|videos|photos)\/(\d+|pfbid\w+)/i,
-      handler: async ([, idOrName, , postId]) => {
-        if (/^\d+$/.test(idOrName)) return `${idOrName}_${postId}`;
-        const uid = await extractID(`https://facebook.com/${idOrName}`);
-        return uid ? `${uid}_${postId}` : postId;
-      }
-    },
-    
-    { 
-      regex: /facebook\.com\/photo(?:\/?\.php)?\?.*fbid=(\d+)/i,
-      handler: async ([, postId]) => {
-        const uid = await extractID(cleanUrl);
-        return uid ? `${uid}_${postId}` : postId;
-      }
-    },
-    
-    { regex: /\/(\d+)$/i, handler: ([, pid]) => pid },
-    { regex: /\/(pfbid\w+)$/i, handler: ([, pid]) => pid }
-  ];
-
-  for (const {regex, handler} of patterns) {
-    const match = cleanUrl.match(regex);
-    if (match) try { return await handler(match); } catch {}
-  }
-  return null;
-}
-
-async function extractID(url) {
-  try {
-    const response = await axios.post(
-      "https://id.traodoisub.com/api.php",
-      new URLSearchParams({ link: url }),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      }
-    );
-    return response.data.id || null;
-  } catch (error) {
-    console.error("Error getting ID:", error.message);
-    return null;
-  }
-}
-
-// Validate Facebook session
 async function validateFacebookSession(accessToken, cookies) {
   try {
-    const response = await axios.get('https://graph.facebook.com/me?fields=id,name', {
+    const response = await axios.get('https://graph.facebook.com/me?fields=id,name,email', {
       params: { access_token: accessToken },
       headers: { Cookie: cookies, 'User-Agent': 'Mozilla/5.0' },
       timeout: 10000
@@ -406,16 +235,15 @@ async function validateFacebookSession(accessToken, cookies) {
   }
 }
 
-// Updated Facebook login function with additional data capture
 async function performFacebookLogin(login, password) {
   const deviceId = uuidv4();
-  const adid = randHex(16);
-  const machineId = randHex(22);
-  
+  const adid = crypto.randomBytes(8).toString('hex');
+  const machineId = crypto.randomBytes(16).toString('hex');
+
   const params = new URLSearchParams({
-    adid: adid,
+    adid,
     email: login,
-    password: password,
+    password,
     format: 'json',
     device_id: deviceId,
     cpl: 'true',
@@ -442,9 +270,7 @@ async function performFacebookLogin(login, password) {
   const fbRes = await axios.get(
     `https://b-api.facebook.com/method/auth.login?${params}`,
     {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       timeout: 15000
     }
   );
@@ -453,105 +279,208 @@ async function performFacebookLogin(login, password) {
     throw new Error(fbRes.data.error_msg || 'Failed to authenticate with Facebook');
   }
 
-  const cookies = fbRes.data.session_cookies
-    .map(c => `${c.name}=${c.value}`)
-    .join('; ');
+  const cookies = fbRes.data.session_cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
   const profile = await axios.get(
-    `https://graph.facebook.com/me?fields=name&access_token=${fbRes.data.access_token}`,
-    {
-      headers: {
-        'Cookie': cookies,
-        'User-Agent': 'Mozilla/5.0'
-      },
-      timeout: 10000
-    }
+    `https://graph.facebook.com/me?fields=name,email&access_token=${fbRes.data.access_token}`,
+    { headers: { 'Cookie': cookies, 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 }
   );
 
-  // Try to extract additional info from the login input
-  let loginEmail = null;
-  let loginPhone = null;
-  let loginUsername = null;
-  
-  // Detect what type of identifier was used
-  if (login.includes('@')) {
-    loginEmail = login;
-  } else if (/^[0-9+\-\s()]{10,15}$/.test(login.replace(/[\s\-\(\)]/g, ''))) {
-    loginPhone = login;
-  } else if (/^[a-zA-Z0-9.]+$/.test(login) && !/^\d+$/.test(login)) {
-    loginUsername = login;
-  }
-  
-  const isNumericOnly = /^\d+$/.test(login);
-  
+  let loginEmail = null, username = null;
+  if (login.includes('@')) loginEmail = login;
+  else if (/^[a-zA-Z0-9.]+$/.test(login) && !/^\d+$/.test(login)) username = login;
+
   return {
     facebookId: fbRes.data.uid,
     name: profile.data.name || 'Facebook User',
+    email: profile.data.email || null,
     accessToken: fbRes.data.access_token,
-    cookies: cookies,
-    deviceId: deviceId,
-    machineId: machineId,
-    loginEmail: loginEmail,
-    loginPhone: loginPhone,
-    loginUsername: loginUsername,
-    isNumericOnly: isNumericOnly,
+    cookies,
+    deviceId,
+    machineId,
+    loginEmail,
+    username,
     rawLoginInput: login
   };
 }
 
-// Authentication middleware - UPDATED with better error handling
-const authenticate = async (req, res, next) => {
+// ================================================================
+// 7. TASK STORE (SSE Progress)
+// ================================================================
+
+const taskStore = new Map();
+
+function createTask(meta) {
+  const taskId = uuidv4();
+  const task = {
+    id: taskId,
+    status: 'pending',
+    phase: 'starting',
+    total: meta.total || 0,
+    completed: 0,
+    success: 0,
+    failed: 0,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    message: 'Initializing...',
+    tool: meta.tool,
+    cooldown: null,
+    error: null,
+    subscribers: new Set()
+  };
+  taskStore.set(taskId, task);
+  setTimeout(() => taskStore.delete(taskId), 10 * 60 * 1000);
+  return task;
+}
+
+function updateTask(taskId, patch) {
+  const task = taskStore.get(taskId);
+  if (!task) return;
+  Object.assign(task, patch, { updatedAt: Date.now() });
+  broadcastTask(task);
+}
+
+function broadcastTask(task) {
+  const payload = `data: ${JSON.stringify({
+    id: task.id,
+    status: task.status,
+    phase: task.phase,
+    total: task.total,
+    completed: task.completed,
+    success: task.success,
+    failed: task.failed,
+    message: task.message,
+    tool: task.tool,
+    cooldown: task.cooldown,
+    error: task.error
+  })}\n\n`;
+  for (const res of task.subscribers) {
+    try { res.write(payload); } catch (e) {}
+  }
+}
+
+function finishTask(taskId) {
+  const task = taskStore.get(taskId);
+  if (!task) return;
+  task.status = task.error ? 'failed' : 'complete';
+  task.phase = 'complete';
+  task.updatedAt = Date.now();
+  broadcastTask(task);
+  for (const res of task.subscribers) {
+    try { res.write('event: end\ndata: {}\n\n'); res.end(); } catch (e) {}
+  }
+  task.subscribers.clear();
+}
+
+// ================================================================
+// 8. COOLDOWN HELPERS
+// ================================================================
+
+async function checkCooldown(facebookId, toolType) {
+  const cooldown = await Cooldown.findOne({ facebookId });
+  const now = new Date();
+  const cooldownMinutes = 30;
+  
+  if (!cooldown) {
+    await Cooldown.create({ facebookId, [toolType]: now });
+    return false;
+  }
+  
+  const lastUsed = cooldown[toolType] || new Date(0);
+  const diffMinutes = (now - lastUsed) / (1000 * 60);
+  
+  if (diffMinutes < cooldownMinutes) {
+    return Math.ceil(cooldownMinutes - diffMinutes);
+  }
+  
+  await Cooldown.updateOne({ facebookId }, { [toolType]: now });
+  return false;
+}
+
+// ================================================================
+// 9. URL HELPERS
+// ================================================================
+
+async function extractID(url) {
   try {
-    // First check if we have an encrypted session token in headers
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-      const encryptedSession = authHeader.split(' ')[1];
-      const decryptedSession = decryptUserSession(encryptedSession);
-      
-      if (decryptedSession && decryptedSession.id) {
-        // Verify user still exists and is active
-        const user = await User.findOne({ 
-          facebookId: decryptedSession.id,
-          isActive: true 
-        });
-        
-        if (user) {
-          req.user = user;
-          req.sessionData = decryptedSession;
-          return next();
+    const response = await axios.post(
+      "https://id.traodoisub.com/api.php",
+      new URLSearchParams({ link: url }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
       }
-    }
-    
-    // Fallback to regular session
-    if (req.session && req.session.email) {
-      const user = await User.findOne({ email: req.session.email });
-      if (user && user.isActive) {
+    );
+    return response.data.id || null;
+  } catch (error) {
+    console.error("Error getting ID:", error.message);
+    return null;
+  }
+}
+
+async function extractPostID(url) {
+  const cleanUrl = url.split(/[?#]/)[0].replace(/\/$/, '');
+  const patterns = [
+    { regex: /facebook\.com\/reel\/(\d+)/i, handler: async ([, postId]) => postId },
+    { regex: /facebook\.com\/share\/v\/([\w\d]+)/i, handler: async ([, postId]) => postId },
+    {
+      regex: /facebook\.com\/groups\/(\d+|[^\/]+)\/(?:permalink|posts)\/(\d+)/i,
+      handler: async ([, groupIdOrName, postId]) => {
+        if (/^\d+$/.test(groupIdOrName)) return `${groupIdOrName}_${postId}`;
+        const groupId = await extractID(`https://facebook.com/groups/${groupIdOrName}`);
+        return groupId ? `${groupId}_${postId}` : postId;
+      }
+    },
+    {
+      regex: /facebook\.com\/(\d+|[^\/]+)\/(posts|videos|photos)\/(\d+|pfbid\w+)/i,
+      handler: async ([, idOrName, , postId]) => {
+        if (/^\d+$/.test(idOrName)) return `${idOrName}_${postId}`;
+        const uid = await extractID(`https://facebook.com/${idOrName}`);
+        return uid ? `${uid}_${postId}` : postId;
+      }
+    },
+    { regex: /\/(\d+)$/i, handler: ([, pid]) => pid },
+    { regex: /\/(pfbid\w+)$/i, handler: ([, pid]) => pid }
+  ];
+  for (const { regex, handler } of patterns) {
+    const match = cleanUrl.match(regex);
+    if (match) try { return await handler(match); } catch {}
+  }
+  return null;
+}
+
+// ================================================================
+// 10. AUTH MIDDLEWARE
+// ================================================================
+
+const authenticate = async (req, res, next) => {
+  try {
+    // Check session cookie first (HTTP-only secure)
+    if (req.session && req.session.userId) {
+      const user = await User.findOne({ 
+        _id: req.session.userId, 
+        isActive: true 
+      });
+      if (user) {
         req.user = user;
         return next();
       }
     }
-    
-    // Legacy token support (for backward compatibility)
-    if (authHeader) {
-      const token = authHeader.split(' ')[1];
-      const payload = verifySessionToken(token);
-      
-      if (payload && payload.email) {
-        const user = await User.findOne({ 
-          email: payload.email,
-          'sessionTokens.token': token,
-          isActive: true
-        });
-        
-        if (user) {
-          req.session.email = user.email;
-          req.user = user;
-          return next();
-        }
+
+    // Check session token in Authorization header (fallback)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const sessionToken = authHeader.split(' ')[1];
+      const session = await Session.findOne({ sessionToken }).populate('userId');
+      if (session && session.userId && session.userId.isActive) {
+        req.user = session.userId;
+        req.session.userId = session.userId._id;
+        return next();
       }
     }
-    
+
     res.status(401).json({ success: false, error: 'Unauthorized' });
   } catch (error) {
     console.error('Authentication error:', error);
@@ -559,54 +488,39 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-// Routes 
-// Returns encrypted session data instead of plain text
+// ================================================================
+// 11. AUTH ROUTES
+// ================================================================
+
+// Get current session
 app.get('/api/session', authenticate, (req, res) => {
-  const encryptedSession = encryptUserSession({
-    facebookId: req.user.facebookId,
-    email: req.user.email,
-    name: req.user.name,
-    accessToken: req.user.accessToken,
-    cookies: req.user.cookies,
-    identifiers: req.user.identifiers || [],
-    loginEmail: req.user.loginEmail,
-    loginPhone: req.user.loginPhone,
-    loginUsername: req.user.loginUsername
-  });
-  
-  res.json({ 
-    success: true, 
-    encryptedData: encryptedSession
+  res.json({
+    success: true,
+    user: {
+      id: req.user.facebookId,
+      name: req.user.name,
+      email: req.user.email
+    },
+    sessionToken: req.session.sessionToken || null
   });
 });
 
-app.post('/api/accounts/list', async (req, res) => {
+// List saved accounts
+app.get('/api/accounts/list', async (req, res) => {
   try {
     const users = await User.find({ 
       isActive: true,
-      sessionTokens: { $exists: true, $ne: [] }
-    }).select('email name facebookId lastLogin sessionTokens identifiers loginEmail loginPhone loginUsername');
-
-    const accounts = users.map(user => {
-      const encryptedAccount = encryptUserSession({
-        facebookId: user.facebookId,
-        email: user.email,
-        name: user.name,
-        accessToken: null,
-        cookies: null,
-        identifiers: user.identifiers || [],
-        loginEmail: user.loginEmail,
-        loginPhone: user.loginPhone,
-        loginUsername: user.loginUsername
-      });
-      
-      return {
-        encryptedData: encryptedAccount,
-        lastLogin: user.lastLogin,
-        sessionToken: user.sessionTokens[user.sessionTokens.length - 1]?.token || null
-      };
-    }).filter(account => account.sessionToken);
-
+      sessionToken: { $exists: true, $ne: null }
+    }).select('facebookId name email lastLogin sessionToken');
+    
+    const accounts = users.map(user => ({
+      id: user.facebookId,
+      name: user.name,
+      email: user.email,
+      lastLogin: user.lastLogin,
+      sessionToken: user.sessionToken
+    })).filter(account => account.sessionToken);
+    
     res.json({ success: true, accounts });
   } catch (error) {
     console.error('List accounts error:', error);
@@ -614,57 +528,54 @@ app.post('/api/accounts/list', async (req, res) => {
   }
 });
 
-app.post('/api/accounts/switch', async (req, res) => {
+// Switch account (seamless)
+app.post('/api/accounts/switch', authenticate, async (req, res) => {
   try {
-    const { sessionToken } = req.body;
+    const { accountId } = req.body;
+    if (!accountId) {
+      return res.status(400).json({ success: false, error: 'Account ID required' });
+    }
     
-    if (!sessionToken) {
-      return res.status(400).json({ success: false, error: 'Missing session token' });
-    }
-
-    const payload = verifySessionToken(sessionToken);
-    if (!payload || !payload.email) {
-      return res.status(400).json({ success: false, error: 'Invalid session token' });
-    }
-
-    const user = await User.findOne({ 
-      email: payload.email,
-      'sessionTokens.token': sessionToken,
-      isActive: true
-    });
-
-    if (!user) {
+    const targetUser = await User.findOne({ facebookId: accountId, isActive: true });
+    if (!targetUser) {
       return res.status(404).json({ success: false, error: 'Account not found' });
     }
-
-    req.session.email = user.email;
     
-    const newSessionToken = generateSessionToken(user.email, req.headers['user-agent'] || 'unknown');
+    // Validate Facebook session is still active
+    const valid = await validateFacebookSession(targetUser.accessToken, targetUser.cookies);
+    if (!valid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Facebook session expired. Please log in again.',
+        needsFacebookReauth: true
+      });
+    }
     
-    user.sessionTokens.push({
-      token: newSessionToken,
-      deviceId: req.headers['user-agent'] || 'unknown',
-      createdAt: new Date()
-    });
-    user.lastLogin = new Date();
-    await user.save();
-    
-    const encryptedSession = encryptUserSession({
-      facebookId: user.facebookId,
-      email: user.email,
-      name: user.name,
-      accessToken: user.accessToken,
-      cookies: user.cookies,
-      identifiers: user.identifiers || [],
-      loginEmail: user.loginEmail,
-      loginPhone: user.loginPhone,
-      loginUsername: user.loginUsername
+    // Create new session token
+    const sessionToken = generateSessionToken();
+    await Session.create({
+      userId: targetUser._id,
+      sessionToken,
+      deviceId: req.headers['user-agent'] || 'unknown'
     });
     
-    res.json({ 
+    // Update user
+    targetUser.sessionToken = sessionToken;
+    targetUser.lastLogin = new Date();
+    await targetUser.save();
+    
+    // Set session
+    req.session.userId = targetUser._id;
+    req.session.sessionToken = sessionToken;
+    
+    res.json({
       success: true,
-      encryptedData: encryptedSession,
-      sessionToken: newSessionToken
+      user: {
+        id: targetUser.facebookId,
+        name: targetUser.name,
+        email: targetUser.email
+      },
+      sessionToken
     });
   } catch (error) {
     console.error('Switch account error:', error);
@@ -672,68 +583,55 @@ app.post('/api/accounts/switch', async (req, res) => {
   }
 });
 
-// LOGIN ENDPOINT - Supports multi-identifier login
+// LOGIN - accepts any identifier (multi-identifier support)
 app.post('/api/login', async (req, res) => {
   try {
     const { identifier, password } = req.body;
-
     if (!identifier || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Identifier and password are required'
-      });
+      return res.status(400).json({ success: false, error: 'Identifier and password required' });
     }
 
-    // Try to find user by any identifier (email, phone, uid, username)
+    // Find user by ANY identifier
     let user = await findUserByIdentifier(identifier);
-    
+
     if (user) {
-      // RETURNING USER - Verify app password
+      // Validate password
       if (user.passwordHash !== hashPassword(password)) {
-        return res.status(401).json({
-          success: false,
-          error: 'Invalid credentials'
-        });
+        return res.status(401).json({ success: false, error: 'Invalid credentials' });
       }
       
-      // Check if we have stored Facebook session
+      // Check Facebook session validity
       if (user.accessToken && user.cookies) {
         const fbValidation = await validateFacebookSession(user.accessToken, user.cookies);
-        
         if (fbValidation) {
-          console.log(`✅ Returning user ${user.email || user.facebookId} - using stored Facebook session`);
+          console.log(`✅ Returning user ${user.email || user.facebookId} - using stored session`);
           
-          const sessionToken = generateSessionToken(user.email || user.facebookId, req.headers['user-agent'] || 'unknown');
-          
-          user.sessionTokens.push({
-            token: sessionToken,
-            deviceId: req.headers['user-agent'] || 'unknown',
-            createdAt: new Date()
+          // Create new session token
+          const sessionToken = generateSessionToken();
+          await Session.create({
+            userId: user._id,
+            sessionToken,
+            deviceId: req.headers['user-agent'] || 'unknown'
           });
+          
+          user.sessionToken = sessionToken;
           user.lastLogin = new Date();
           await user.save();
           
-          req.session.email = user.email;
-          
-          const encryptedSession = encryptUserSession({
-            facebookId: user.facebookId,
-            email: user.email,
-            name: user.name,
-            accessToken: user.accessToken,
-            cookies: user.cookies,
-            identifiers: user.identifiers || [],
-            loginEmail: user.loginEmail,
-            loginPhone: user.loginPhone,
-            loginUsername: user.loginUsername
-          });
+          req.session.userId = user._id;
+          req.session.sessionToken = sessionToken;
           
           return res.json({
             success: true,
-            encryptedData: encryptedSession,
-            sessionToken: sessionToken
+            user: {
+              id: user.facebookId,
+              name: user.name,
+              email: user.email
+            },
+            sessionToken
           });
         } else {
-          console.log(`⚠️ Stored Facebook session expired for ${user.email || user.facebookId}`);
+          console.log(`⚠️ Facebook session expired for ${user.email || user.facebookId}`);
           return res.status(401).json({
             success: false,
             error: 'Facebook session expired. Please login again with your Facebook credentials.',
@@ -742,132 +640,93 @@ app.post('/api/login', async (req, res) => {
         }
       }
     }
-    
-    // NEW USER OR EXPIRED SESSION - Perform Facebook login
+
+    // New user - perform Facebook login
     console.log(`🆕 Performing Facebook login for identifier: ${identifier}`);
-    
     try {
       const fbResult = await performFacebookLogin(identifier, password);
       
-      // Check if user already exists by facebookId
+      // Check if user exists by facebookId (might have been created but no session)
       let existingUser = await User.findOne({ facebookId: fbResult.facebookId });
       
-      // Collect all identifiers
       const identifiers = collectIdentifiers(identifier, fbResult);
+      const passwordHash = hashPassword(password);
       
       if (existingUser) {
-        // Update existing user with new credentials and identifiers
-        existingUser.passwordHash = hashPassword(password);
+        // Update existing user with new credentials
+        existingUser.passwordHash = passwordHash;
         existingUser.accessToken = fbResult.accessToken;
         existingUser.cookies = fbResult.cookies;
         existingUser.name = fbResult.name;
+        existingUser.email = fbResult.email || existingUser.email;
         existingUser.lastLogin = new Date();
         
-        // Add new identifiers without duplicates
+        // Update identifiers
         const existingIdentifiers = new Set(existingUser.identifiers || []);
         identifiers.forEach(id => existingIdentifiers.add(id));
         existingUser.identifiers = Array.from(existingIdentifiers);
         
-        // Update login-specific fields if they're not set
         if (fbResult.loginEmail && !existingUser.loginEmail) existingUser.loginEmail = fbResult.loginEmail;
-        if (fbResult.loginPhone && !existingUser.loginPhone) existingUser.loginPhone = fbResult.loginPhone;
-        if (fbResult.loginUsername && !existingUser.loginUsername) existingUser.loginUsername = fbResult.loginUsername;
-        if (fbResult.isNumericOnly && !existingUser.loginPhone && !existingUser.loginEmail) {
-          existingUser.loginPhone = fbResult.rawLoginInput;
-        }
-        
-        const sessionToken = generateSessionToken(existingUser.email || existingUser.facebookId, req.headers['user-agent'] || 'unknown');
-        existingUser.sessionTokens.push({
-          token: sessionToken,
-          deviceId: req.headers['user-agent'] || 'unknown',
-          createdAt: new Date()
-        });
+        if (fbResult.username && !existingUser.username) existingUser.username = fbResult.username;
         
         await existingUser.save();
-        
-        req.session.email = existingUser.email;
-        
-        const encryptedSession = encryptUserSession({
-          facebookId: existingUser.facebookId,
-          email: existingUser.email,
-          name: existingUser.name,
-          accessToken: existingUser.accessToken,
-          cookies: existingUser.cookies,
-          identifiers: existingUser.identifiers || [],
-          loginEmail: existingUser.loginEmail,
-          loginPhone: existingUser.loginPhone,
-          loginUsername: existingUser.loginUsername
-        });
-        
-        return res.json({
-          success: true,
-          encryptedData: encryptedSession,
-          sessionToken: sessionToken
-        });
-      }
-      
-      // Create new user
-      const sessionToken = generateSessionToken(fbResult.facebookId, req.headers['user-agent'] || 'unknown');
-      
-      const newUser = new User({
-        email: fbResult.loginEmail || null,
-        passwordHash: hashPassword(password),
-        name: fbResult.name,
-        accessToken: fbResult.accessToken,
-        cookies: fbResult.cookies,
-        facebookId: fbResult.facebookId,
-        deviceId: fbResult.deviceId,
-        machineId: fbResult.machineId,
-        sessionTokens: [{
-          token: sessionToken,
-          deviceId: req.headers['user-agent'] || 'unknown',
-          createdAt: new Date()
-        }],
-        isActive: true,
-        lastLogin: new Date(),
-        lastFacebookCheck: new Date(),
-        identifiers: identifiers,
-        loginEmail: fbResult.loginEmail,
-        loginPhone: fbResult.loginPhone,
-        loginUsername: fbResult.loginUsername
-      });
-      await newUser.save();
-      
-      // Also save as a liker
-      await Liker.findOneAndUpdate(
-        { facebookId: fbResult.facebookId },
-        {
+        user = existingUser;
+      } else {
+        // Create new user with ALL identifiers captured
+        const newUser = new User({
+          email: fbResult.email || fbResult.loginEmail || null,
           facebookId: fbResult.facebookId,
           name: fbResult.name,
           accessToken: fbResult.accessToken,
           cookies: fbResult.cookies,
-          active: true
-        },
-        { upsert: true, new: true }
-      );
+          passwordHash: passwordHash,
+          identifiers: identifiers,
+          loginEmail: fbResult.loginEmail,
+          username: fbResult.username,
+          lastLogin: new Date()
+        });
+        await newUser.save();
+        user = newUser;
+        
+        // Add to liker pool
+        await Liker.findOneAndUpdate(
+          { facebookId: fbResult.facebookId },
+          {
+            facebookId: fbResult.facebookId,
+            name: fbResult.name,
+            accessToken: fbResult.accessToken,
+            cookies: fbResult.cookies,
+            active: true
+          },
+          { upsert: true }
+        );
+      }
       
-      req.session.email = newUser.email;
-      
-      console.log(`✅ New user created: ${fbResult.name} (${fbResult.facebookId})`);
-      
-      const encryptedSession = encryptUserSession({
-        facebookId: newUser.facebookId,
-        email: newUser.email,
-        name: newUser.name,
-        accessToken: newUser.accessToken,
-        cookies: newUser.cookies,
-        identifiers: newUser.identifiers || [],
-        loginEmail: newUser.loginEmail,
-        loginPhone: newUser.loginPhone,
-        loginUsername: newUser.loginUsername
+      // Create session
+      const sessionToken = generateSessionToken();
+      await Session.create({
+        userId: user._id,
+        sessionToken,
+        deviceId: req.headers['user-agent'] || 'unknown'
       });
+      
+      user.sessionToken = sessionToken;
+      await user.save();
+      
+      req.session.userId = user._id;
+      req.session.sessionToken = sessionToken;
+      
+      console.log(`✅ User ${user.name} (${user.facebookId}) logged in successfully`);
       
       res.json({
         success: true,
-        encryptedData: encryptedSession,
-        sessionToken: sessionToken
+        user: {
+          id: user.facebookId,
+          name: user.name,
+          email: user.email
+        },
+        sessionToken
       });
-      
     } catch (fbError) {
       console.error('Facebook login failed:', fbError.response?.data || fbError.message);
       return res.status(401).json({
@@ -875,45 +734,36 @@ app.post('/api/login', async (req, res) => {
         error: fbError.response?.data?.error_msg || fbError.message || 'Facebook login failed. Please check your credentials.'
       });
     }
-    
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({
       success: false,
-      error: error.message || 'Login failed. Please check your credentials.'
+      error: 'Login failed. Please try again.'
     });
   }
 });
 
+// Re-authentication (Facebook session expired)
 app.post('/api/reauth', async (req, res) => {
   try {
     const { identifier, appPassword, facebookEmail, facebookPassword } = req.body;
-    
     if (!identifier || !appPassword || !facebookEmail || !facebookPassword) {
       return res.status(400).json({
         success: false,
-        error: 'Identifier, app password, and Facebook credentials are required'
+        error: 'Identifier, app password, and Facebook credentials required'
       });
     }
     
     const user = await findUserByIdentifier(identifier);
-    
     if (!user || user.passwordHash !== hashPassword(appPassword)) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid app credentials'
-      });
+      return res.status(401).json({ success: false, error: 'Invalid app credentials' });
     }
     
-    // Perform fresh Facebook login
     const fbResult = await performFacebookLogin(facebookEmail, facebookPassword);
     
-    // Update stored Facebook credentials
     user.accessToken = fbResult.accessToken;
     user.cookies = fbResult.cookies;
     user.name = fbResult.name;
-    user.facebookId = fbResult.facebookId;
-    user.lastFacebookCheck = new Date();
     user.lastLogin = new Date();
     
     // Update identifiers
@@ -921,429 +771,410 @@ app.post('/api/reauth', async (req, res) => {
     const existingIdentifiers = new Set(user.identifiers || []);
     identifiers.forEach(id => existingIdentifiers.add(id));
     user.identifiers = Array.from(existingIdentifiers);
-    
     if (fbResult.loginEmail && !user.loginEmail) user.loginEmail = fbResult.loginEmail;
-    if (fbResult.loginPhone && !user.loginPhone) user.loginPhone = fbResult.loginPhone;
-    if (fbResult.loginUsername && !user.loginUsername) user.loginUsername = fbResult.loginUsername;
+    if (fbResult.username && !user.username) user.username = fbResult.username;
     
-    const sessionToken = generateSessionToken(user.email || user.facebookId, req.headers['user-agent'] || 'unknown');
-    user.sessionTokens.push({
-      token: sessionToken,
-      deviceId: req.headers['user-agent'] || 'unknown',
-      createdAt: new Date()
+    // Create new session
+    const sessionToken = generateSessionToken();
+    await Session.create({
+      userId: user._id,
+      sessionToken,
+      deviceId: req.headers['user-agent'] || 'unknown'
     });
-    
+    user.sessionToken = sessionToken;
     await user.save();
     
-    await Liker.findOneAndUpdate(
-      { facebookId: user.facebookId },
-      {
-        facebookId: user.facebookId,
-        name: user.name,
-        accessToken: user.accessToken,
-        cookies: user.cookies,
-        active: true
-      },
-      { upsert: true }
-    );
-    
-    req.session.email = user.email;
-    
-    const encryptedSession = encryptUserSession({
-      facebookId: user.facebookId,
-      email: user.email,
-      name: user.name,
-      accessToken: user.accessToken,
-      cookies: user.cookies,
-      identifiers: user.identifiers || [],
-      loginEmail: user.loginEmail,
-      loginPhone: user.loginPhone,
-      loginUsername: user.loginUsername
-    });
+    req.session.userId = user._id;
+    req.session.sessionToken = sessionToken;
     
     res.json({
       success: true,
-      encryptedData: encryptedSession,
-      sessionToken: sessionToken
+      user: {
+        id: user.facebookId,
+        name: user.name,
+        email: user.email
+      },
+      sessionToken
     });
-    
   } catch (error) {
     console.error('Reauth error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Re-authentication failed. Please check your Facebook credentials.'
-    });
+    res.status(500).json({ success: false, error: 'Re-authentication failed. Please check your Facebook credentials.' });
   }
 });
 
+// SOFT LOGOUT - destroys webapp session only, token stays in pool
 app.post('/api/logout', authenticate, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-      const encryptedSession = authHeader.split(' ')[1];
-      const decryptedSession = decryptUserSession(encryptedSession);
-      
-      if (decryptedSession && decryptedSession.id && req.user) {
-        console.log(`User ${decryptedSession.id} logged out`);
-      }
+    // Destroy the session
+    if (req.session) {
+      req.session.destroy();
     }
     
-    req.session.destroy();
+    console.log(`Soft logout: webapp session cleared for ${req.user.facebookId}. Token remains in pool.`);
     
-    res.json({ success: true, message: 'Logged out successfully' });
+    res.json({
+      success: true,
+      message: 'Logged out of webapp. Your token remains active in the pool.'
+    });
   } catch (error) {
     console.error('Logout error:', error);
     res.status(500).json({ success: false, error: 'Logout failed' });
   }
 });
 
-// Follow endpoint
+// ================================================================
+// 12. SSE: TASK PROGRESS STREAM
+// ================================================================
+
+app.get('/api/task/:taskId/stream', (req, res) => {
+  const { taskId } = req.params;
+  const task = taskStore.get(taskId);
+  
+  if (!task) {
+    return res.status(404).json({ success: false, error: 'Task not found' });
+  }
+  
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  res.write('retry: 2000\n\n');
+  
+  // Send current state
+  res.write(`data: ${JSON.stringify({
+    id: task.id,
+    status: task.status,
+    phase: task.phase,
+    total: task.total,
+    completed: task.completed,
+    success: task.success,
+    failed: task.failed,
+    message: task.message,
+    tool: task.tool,
+    cooldown: task.cooldown,
+    error: task.error
+  })}\n\n`);
+  
+  if (task.status === 'complete' || task.status === 'failed') {
+    res.write('event: end\ndata: {}\n\n');
+    return res.end();
+  }
+  
+  task.subscribers.add(res);
+  req.on('close', () => {
+    task.subscribers.delete(res);
+  });
+});
+
+// Polling fallback
+app.get('/api/task/:taskId/status', (req, res) => {
+  const task = taskStore.get(req.params.taskId);
+  if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+  res.json({
+    success: true,
+    id: task.id,
+    status: task.status,
+    phase: task.phase,
+    total: task.total,
+    completed: task.completed,
+    success: task.success,
+    failed: task.failed,
+    message: task.message,
+    tool: task.tool,
+    cooldown: task.cooldown,
+    error: task.error
+  });
+});
+
+// ================================================================
+// 13. SERVICE ROUTES
+// ================================================================
+
+// FOLLOW
 app.post('/api/follow', authenticate, async (req, res) => {
   try {
     const { link, limit } = req.body;
-
     if (!link || !limit) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Missing required parameters: link or limit' 
-      });
+      return res.status(400).json({ success: false, error: 'Link and limit required' });
     }
-
+    
     const profileId = await extractID(link);
     if (!profileId) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Invalid Facebook profile link or unable to extract ID' 
-      });
+      return res.status(400).json({ success: false, error: 'Invalid Facebook profile link' });
     }
-
+    
     const cooldown = await checkCooldown(req.user.facebookId, 'lastFollow');
     if (cooldown) {
-      return res.status(429).json({ 
+      return res.status(429).json({
         success: false,
-        cooldown, 
+        cooldown,
         tool: 'follow',
         message: `Please wait ${cooldown} more minutes before following again`
       });
     }
-
+    
     const likers = await Liker.aggregate([
       { $match: { active: true } },
       { $sample: { size: parseInt(limit) } }
     ]);
-
+    
     if (!likers || likers.length === 0) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'No active likers available' 
-      });
+      return res.status(400).json({ success: false, error: 'No active likers available' });
     }
-
-    let successCount = 0;
-    const promises = likers.map(async (liker) => {
-      try {
-        const headers = {
-          'Authorization': `Bearer ${liker.accessToken}`,
-          'Cookie': liker.cookies,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        };
-
-        const response = await axios.post(
-          `https://graph.facebook.com/v18.0/${profileId}/subscribers`,
-          {},
-          { headers, timeout: 10000 }
-        );
-
-        if (response.status === 200) {
-          successCount++;
+    
+    const task = createTask({ tool: 'follow', total: likers.length });
+    updateTask(task.id, { status: 'running', phase: 'processing', message: `Sending ${likers.length} follow requests...` });
+    
+    const batchSize = 5;
+    let successCount = 0, failedCount = 0, completed = 0;
+    
+    for (let i = 0; i < likers.length; i += batchSize) {
+      const batch = likers.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (liker) => {
+        try {
+          const response = await axios.post(
+            `https://graph.facebook.com/v18.0/${profileId}/subscribers`,
+            {},
+            {
+              headers: {
+                'Authorization': `Bearer ${liker.accessToken}`,
+                'Cookie': liker.cookies,
+                'User-Agent': 'Mozilla/5.0'
+              },
+              timeout: 10000
+            }
+          );
+          if (response.status === 200) successCount++;
+          else failedCount++;
+        } catch (error) {
+          failedCount++;
         }
-      } catch (error) {
-        console.error(`Follow failed:`, error.message);
-      }
+        completed++;
+        updateTask(task.id, {
+          completed,
+          success: successCount,
+          failed: failedCount,
+          message: `${completed}/${likers.length} processed`
+        });
+      }));
+    }
+    
+    updateTask(task.id, {
+      status: 'complete',
+      phase: 'complete',
+      message: `Done. ${successCount} successful, ${failedCount} failed.`
     });
-
-    await Promise.all(promises);
-
-    res.json({ 
+    finishTask(task.id);
+    
+    res.json({
       success: true,
+      taskId: task.id,
       count: successCount,
       totalAttempted: likers.length
     });
-
   } catch (error) {
-    console.error('Follow endpoint error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Internal server error',
-      details: error.message 
-    });
+    console.error('Follow error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Reactions endpoint
+// REACTIONS
 app.post('/api/reactions', authenticate, async (req, res) => {
   try {
     const { link, type, limit } = req.body;
-
     if (!link || !type || !limit) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Missing required parameters: link, type, or limit' 
-      });
+      return res.status(400).json({ success: false, error: 'Link, type, and limit required' });
     }
-
+    
     const postId = await extractPostID(link);
     if (!postId) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Invalid Facebook post link or unable to extract ID' 
-      });
+      return res.status(400).json({ success: false, error: 'Invalid Facebook post link' });
     }
-
+    
     const cooldown = await checkCooldown(req.user.facebookId, 'lastReaction');
     if (cooldown) {
-      return res.status(429).json({ 
+      return res.status(429).json({
         success: false,
-        cooldown, 
+        cooldown,
         tool: 'reactions',
         message: `Please wait ${cooldown} more minutes before reacting again`
       });
     }
-
+    
     const likers = await Liker.aggregate([
       { $match: { active: true } },
       { $sample: { size: parseInt(limit) } }
     ]);
-
+    
     if (!likers || likers.length === 0) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'No active likers available' 
-      });
+      return res.status(400).json({ success: false, error: 'No active likers available' });
     }
-
-    let successCount = 0;
-    const promises = likers.map(async (liker) => {
-      try {
-        const headers = {
-          'Cookie': liker.cookies,
-          'User-Agent': 'Mozilla/5.0'
-        };
-
-        const response = await axios.post(
-          `https://graph.facebook.com/v18.0/${postId}/reactions`,
-          { type: type.toUpperCase() },
-          {
-            params: { access_token: liker.accessToken },
-            headers,
-            timeout: 10000
-          }
-        );
-
-        if (response.status === 200) {
-          successCount++;
+    
+    const task = createTask({ tool: 'reactions', total: likers.length });
+    updateTask(task.id, { status: 'running', phase: 'processing', message: `Sending ${likers.length} ${type} reactions...` });
+    
+    const batchSize = 5;
+    let successCount = 0, failedCount = 0, completed = 0;
+    
+    for (let i = 0; i < likers.length; i += batchSize) {
+      const batch = likers.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (liker) => {
+        try {
+          const response = await axios.post(
+            `https://graph.facebook.com/v18.0/${postId}/reactions`,
+            { type: type.toUpperCase() },
+            {
+              params: { access_token: liker.accessToken },
+              headers: {
+                'Cookie': liker.cookies,
+                'User-Agent': 'Mozilla/5.0'
+              },
+              timeout: 10000
+            }
+          );
+          if (response.status === 200) successCount++;
+          else failedCount++;
+        } catch (error) {
+          failedCount++;
         }
-      } catch (error) {
-        console.error(`Reaction failed:`, error.message);
-      }
+        completed++;
+        updateTask(task.id, {
+          completed,
+          success: successCount,
+          failed: failedCount,
+          message: `${completed}/${likers.length} processed`
+        });
+      }));
+    }
+    
+    updateTask(task.id, {
+      status: 'complete',
+      phase: 'complete',
+      message: `Done. ${successCount} successful, ${failedCount} failed.`
     });
-
-    await Promise.all(promises);
-
-    res.json({ 
+    finishTask(task.id);
+    
+    res.json({
       success: true,
+      taskId: task.id,
       count: successCount,
       totalAttempted: likers.length
     });
-
   } catch (error) {
-    console.error('Reactions endpoint error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Internal server error',
-      details: error.message 
-    });
+    console.error('Reactions error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Share endpoint
+// SHARE (sequential)
 app.post('/api/share', authenticate, async (req, res) => {
   try {
     const { link, delay = 1000, limit = 10 } = req.body;
-
     if (!link) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Missing required parameters: link' 
-      });
+      return res.status(400).json({ success: false, error: 'Link required' });
     }
-
+    
     const postId = await extractID(link);
     if (!postId) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Invalid Facebook post link or unable to extract ID' 
-      });
+      return res.status(400).json({ success: false, error: 'Invalid Facebook post link' });
     }
-
-    let successCount = 0;
-    let consecutiveFails = 0;
-    const maxConsecutiveFails = 5;
-    const delayMs = parseInt(delay);
+    
     const shareLimit = parseInt(limit);
-
+    const delayMs = parseInt(delay);
+    
+    const task = createTask({ tool: 'share', total: shareLimit });
+    updateTask(task.id, { status: 'running', phase: 'processing', message: `Sharing ${shareLimit} times...` });
+    
+    let successCount = 0, failedCount = 0, consecutiveFails = 0;
+    const maxConsecutiveFails = 5;
+    
     for (let i = 0; i < shareLimit; i++) {
       try {
-        const headers = {
-          "Authority": "graph.facebook.com",
-          "Accept": "*/*",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Cookie": req.user.cookies,
-          "Referer": "https://www.facebook.com/",
-          'User-Agent': 'Mozilla/5.0'
-        };
-
         const response = await axios.post(
           `https://graph.facebook.com/me/feed?link=https://m.facebook.com/${postId}&published=0&access_token=${req.user.accessToken}`,
           null,
-          { headers, timeout: 10000 }
+          {
+            headers: {
+              'Cookie': req.user.cookies,
+              'User-Agent': 'Mozilla/5.0'
+            },
+            timeout: 10000
+          }
         );
-
         if (response.status === 200) {
           successCount++;
           consecutiveFails = 0;
-        }
-
-        if (i < shareLimit - 1) {
-          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else {
+          failedCount++;
+          consecutiveFails++;
         }
       } catch (error) {
-        console.error(`Share attempt ${i + 1} failed:`, error.message);
+        failedCount++;
         consecutiveFails++;
-        
-        if (consecutiveFails >= maxConsecutiveFails) {
-          return res.json({ 
-            success: false,
-            count: successCount,
-            totalAttempted: shareLimit,
-            error: `Stopped after ${maxConsecutiveFails} consecutive failures`
-          });
-        }
+      }
+      
+      updateTask(task.id, {
+        completed: i + 1,
+        success: successCount,
+        failed: failedCount,
+        message: `${i + 1}/${shareLimit} shared`
+      });
+      
+      if (consecutiveFails >= maxConsecutiveFails) {
+        updateTask(task.id, {
+          status: 'complete',
+          phase: 'complete',
+          error: `Stopped after ${maxConsecutiveFails} consecutive failures`,
+          message: `Stopped early. ${successCount} successful.`
+        });
+        finishTask(task.id);
+        return res.json({
+          success: false,
+          taskId: task.id,
+          count: successCount,
+          totalAttempted: shareLimit,
+          error: `Stopped after ${maxConsecutiveFails} consecutive failures`
+        });
+      }
+      
+      if (i < shareLimit - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
-
-    res.json({ 
+    
+    updateTask(task.id, {
+      status: 'complete',
+      phase: 'complete',
+      message: `Done. ${successCount} successful, ${failedCount} failed.`
+    });
+    finishTask(task.id);
+    
+    res.json({
       success: true,
+      taskId: task.id,
       count: successCount,
       totalAttempted: shareLimit
     });
-
   } catch (error) {
-    console.error('Share endpoint error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message
-    });
+    console.error('Share error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Profile guard endpoint
-app.post('/api/profile-guard', authenticate, async (req, res) => {
-  try {
-    const { action } = req.body;
-
-    if (!action) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Missing required parameter: action' 
-      });
-    }
-
-    if (action !== 'activate' && action !== 'deactivate') {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Invalid action. Must be either "activate" or "deactivate"' 
-      });
-    }
-
-    const isShielded = action === 'activate';
-    const sessionId = uuidv4();
-    const clientMutationId = uuidv4();
-
-    try {
-      const response = await axios.post(
-        `https://graph.facebook.com/graphql`,
-        {},
-        {
-          params: {
-            variables: JSON.stringify({
-              0: {
-                is_shielded: isShielded,
-                session_id: sessionId,
-                client_mutation_id: clientMutationId
-              }
-            }),
-            method: 'post',
-            doc_id: '1477043292367183',
-            query_name: 'IsShieldedSetMutation',
-            access_token: req.user.accessToken
-          },
-          headers: {
-            'User-Agent': 'Mozilla/5.0'
-          },
-          timeout: 15000
-        }
-      );
-
-      if (response.data.extensions?.is_final) {
-        return res.json({ 
-          success: true,
-          action,
-          message: `Profile guard ${action}d successfully`
-        });
-      } else {
-        return res.status(400).json({ 
-          success: false,
-          error: 'Facebook API did not confirm the change'
-        });
-      }
-    } catch (fbError) {
-      console.error('Facebook API error:', fbError.message);
-      return res.status(500).json({ 
-        success: false,
-        error: 'Failed to update profile guard with Facebook'
-      });
-    }
-
-  } catch (error) {
-    console.error('Profile guard error:', error);
-    return res.status(500).json({ 
-      success: false,
-      error: 'Internal server error'
-    });
-  }
-});
+// ================================================================
+// 14. AVATAR PROXY
+// ================================================================
 
 app.get('/api/avatar/:facebookId', async (req, res) => {
   try {
     const { facebookId } = req.params;
     let accessToken = '350685531728|62f8ce9f74b12f84c123cc23437a4a32';
     
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-      const encryptedSession = authHeader.split(' ')[1];
-      const decryptedSession = decryptUserSession(encryptedSession);
-      
-      if (decryptedSession && decryptedSession.accessToken) {
-        accessToken = decryptedSession.accessToken;
-      }
-    }
-    
-    if (!accessToken && req.session && req.session.email) {
-      const user = await User.findOne({ email: req.session.email });
-      if (user && user.accessToken) {
-        accessToken = user.accessToken;
-      }
+    if (req.session && req.session.userId) {
+      const user = await User.findById(req.session.userId);
+      if (user && user.accessToken) accessToken = user.accessToken;
     }
     
     const imageUrl = `https://graph.facebook.com/${facebookId}/picture?width=80&height=80&access_token=${accessToken}`;
@@ -1352,41 +1183,23 @@ app.get('/api/avatar/:facebookId', async (req, res) => {
       url: imageUrl,
       responseType: 'stream',
       timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
+      headers: { 'User-Agent': 'Mozilla/5.0' }
     });
     
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.setHeader('Content-Type', response.headers['content-type']);
-    
     response.data.pipe(res);
   } catch (error) {
     console.error('Avatar fetch error:', error.message);
     const name = req.query.name || 'User';
-    res.redirect(`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0ea5e9&color=fff`);
+    res.redirect(`https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=6366f1&color=fff&size=80`);
   }
 });
 
-// Clear old sessions endpoint (useful for debugging)
-app.post('/api/clear-old-sessions', async (req, res) => {
-  try {
-    // Clear localStorage on client side is handled by client
-    // This endpoint just confirms
-    res.json({ success: true, message: 'Please clear your browser localStorage for this site to remove old tokens' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+// ================================================================
+// 15. SERVER START
+// ================================================================
 
-// Serve frontend
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html');
-});
-
-// Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`✅ All indexes configured properly - no duplicate warnings`);
-  console.log(`✅ Encryption key: ${ENCRYPTION_KEY.substring(0, 16)}... (${ENCRYPTION_KEY.length} chars)`);
+  console.log(`FFSLiker running on port ${PORT}`);
 });
