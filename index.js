@@ -1,5 +1,5 @@
 /**
- * FFSLiker NEXUS - Backend Server
+ * FFSLiker - Backend Server
  * @module server
  * 
  * Features:
@@ -9,6 +9,7 @@
  * - SSE real-time updates
  * - Soft logout architecture
  * - Multi-identifier login support
+ * - Per-token persistent User Agent rotation
  * 
  * @requires express
  * @requires mongoose
@@ -49,7 +50,92 @@ function validateEnv() {
 validateEnv();
 
 // ================================================================
-// 3. MIDDLEWARE
+// 3. USER AGENT LIST - REAL DEVICE ROTATION (PER TOKEN)
+// ================================================================
+
+const USER_AGENTS = [
+  // Windows 10/11 - Chrome
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
+  
+  // Windows 10/11 - Edge
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+  
+  // Windows 10/11 - Firefox
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0',
+  
+  // macOS - Chrome
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+  
+  // macOS - Safari
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15',
+  
+  // macOS - Firefox
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7; rv:109.0) Gecko/20100101 Firefox/121.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7; rv:109.0) Gecko/20100101 Firefox/120.0',
+  
+  // iOS - Safari
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (iPad; CPU OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
+  
+  // iOS - Facebook App
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/430.0.0.34.106;FBBV/500000000;FBDV/iPhone14,2;FBMD/iPhone;FBSN/iOS;FBSV/17.2;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5]',
+  
+  // Android - Chrome
+  'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+  
+  // Android - Samsung Internet
+  'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/23.0 Chrome/115.0.5790.185 Mobile Safari/537.36',
+  
+  // Android - Firefox
+  'Mozilla/5.0 (Android 14; Mobile; rv:109.0) Gecko/121.0 Firefox/121.0',
+  'Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/120.0 Firefox/120.0',
+  
+  // Android - Facebook App
+  'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36 [FBAN/FBIOS;FBAV/430.0.0.34.106;FBBV/500000000;FBDV/SM-S918B;FBMD/Samsung;FBSN/Android;FBSV/14;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5]',
+  
+  // Linux - Chrome
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+  
+  // Linux - Firefox
+  'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0',
+  'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/120.0',
+];
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function getDeviceInfo(ua) {
+  const isMobile = /Mobile|iPhone|Android|iPad/i.test(ua);
+  const isIOS = /iPhone|iPad/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const isWindows = /Windows/i.test(ua);
+  const isMac = /Macintosh/i.test(ua);
+  const isLinux = /Linux/i.test(ua);
+  
+  const browser = ua.includes('Chrome') ? 'Chrome' :
+                  ua.includes('Firefox') ? 'Firefox' :
+                  ua.includes('Safari') ? 'Safari' :
+                  ua.includes('Edg') ? 'Edge' : 'Unknown';
+  
+  return { isMobile, isIOS, isAndroid, isWindows, isMac, isLinux, browser };
+}
+
+// ================================================================
+// 4. MIDDLEWARE
 // ================================================================
 
 app.use(cors({ origin: true, credentials: true }));
@@ -95,7 +181,7 @@ app.use('/api/', apiLimiter);
 app.set('trust proxy', 1);
 
 // ================================================================
-// 4. DATABASE CONNECTION
+// 5. DATABASE CONNECTION
 // ================================================================
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -124,7 +210,7 @@ mongoose.connection.on('error', (err) => console.error('Mongoose connection erro
 connectDB();
 
 // ================================================================
-// 5. DATABASE MODELS
+// 6. DATABASE MODELS
 // ================================================================
 
 // User schema - stores ALL identifiers on first login
@@ -135,15 +221,13 @@ const UserSchema = new mongoose.Schema({
   accessToken: { type: String, select: false },
   cookies: { type: String, select: false },
   passwordHash: { type: String, required: true },
-  identifiers: { type: [String], default: [] }, // email, username, facebookId
+  identifiers: { type: [String], default: [] },
   sessionToken: { type: String, select: false },
   isActive: { type: Boolean, default: true },
   lastLogin: Date,
   createdAt: { type: Date, default: Date.now },
-  // Additional identifiers captured on first login
   username: { type: String, sparse: true },
   loginEmail: { type: String, sparse: true },
-  // Phone intentionally NOT stored for privacy
 });
 
 UserSchema.index({ email: 1 }, { unique: true, sparse: true });
@@ -164,7 +248,7 @@ const CooldownSchema = new mongoose.Schema({
 });
 const Cooldown = mongoose.model('Cooldown', CooldownSchema);
 
-// Liker pool
+// Liker pool - UPDATED with device fingerprinting
 const LikerSchema = new mongoose.Schema({
   facebookId: { type: String, required: true, unique: true },
   name: String,
@@ -172,7 +256,15 @@ const LikerSchema = new mongoose.Schema({
   cookies: { type: String, required: true },
   active: { type: Boolean, default: true },
   lastUsed: Date,
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  // NEW: Device fingerprinting - PER TOKEN PERSISTENT
+  deviceInfo: {
+    userAgent: { type: String, default: null },
+    platform: { type: String, default: null },
+    browser: { type: String, default: null },
+    isMobile: { type: Boolean, default: false },
+    assignedAt: { type: Date, default: Date.now }
+  }
 });
 const Liker = mongoose.model('Liker', LikerSchema);
 
@@ -186,7 +278,7 @@ const SessionSchema = new mongoose.Schema({
 const Session = mongoose.model('Session', SessionSchema);
 
 // ================================================================
-// 6. HELPERS
+// 7. HELPERS
 // ================================================================
 
 function hashPassword(password) {
@@ -235,10 +327,15 @@ async function validateFacebookSession(accessToken, cookies) {
   }
 }
 
+// UPDATED: performFacebookLogin with device fingerprint
 async function performFacebookLogin(login, password) {
   const deviceId = uuidv4();
   const adid = crypto.randomBytes(8).toString('hex');
   const machineId = crypto.randomBytes(16).toString('hex');
+
+  // Assign persistent UA for THIS token
+  const deviceUA = getRandomUserAgent();
+  const deviceInfo = getDeviceInfo(deviceUA);
 
   const params = new URLSearchParams({
     adid,
@@ -270,7 +367,7 @@ async function performFacebookLogin(login, password) {
   const fbRes = await axios.get(
     `https://b-api.facebook.com/method/auth.login?${params}`,
     {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      headers: { 'User-Agent': deviceUA },
       timeout: 15000
     }
   );
@@ -283,7 +380,13 @@ async function performFacebookLogin(login, password) {
 
   const profile = await axios.get(
     `https://graph.facebook.com/me?fields=name,email&access_token=${fbRes.data.access_token}`,
-    { headers: { 'Cookie': cookies, 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 }
+    { 
+      headers: { 
+        'Cookie': cookies, 
+        'User-Agent': deviceUA 
+      }, 
+      timeout: 10000 
+    }
   );
 
   let loginEmail = null, username = null;
@@ -300,12 +403,23 @@ async function performFacebookLogin(login, password) {
     machineId,
     loginEmail,
     username,
-    rawLoginInput: login
+    rawLoginInput: login,
+    // NEW: Device fingerprint
+    deviceInfo: {
+      userAgent: deviceUA,
+      platform: deviceInfo.isWindows ? 'Windows' :
+                deviceInfo.isMac ? 'macOS' :
+                deviceInfo.isAndroid ? 'Android' :
+                deviceInfo.isIOS ? 'iOS' : 'Linux',
+      browser: deviceInfo.browser,
+      isMobile: deviceInfo.isMobile,
+      assignedAt: new Date()
+    }
   };
 }
 
 // ================================================================
-// 7. TASK STORE (SSE Progress)
+// 8. TASK STORE (SSE Progress)
 // ================================================================
 
 const taskStore = new Map();
@@ -373,7 +487,7 @@ function finishTask(taskId) {
 }
 
 // ================================================================
-// 8. COOLDOWN HELPERS
+// 9. COOLDOWN HELPERS
 // ================================================================
 
 async function checkCooldown(facebookId, toolType) {
@@ -398,7 +512,7 @@ async function checkCooldown(facebookId, toolType) {
 }
 
 // ================================================================
-// 9. URL HELPERS
+// 10. URL HELPERS
 // ================================================================
 
 async function extractID(url) {
@@ -409,7 +523,7 @@ async function extractID(url) {
       {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          "User-Agent": getRandomUserAgent()
         }
       }
     );
@@ -452,12 +566,11 @@ async function extractPostID(url) {
 }
 
 // ================================================================
-// 10. AUTH MIDDLEWARE
+// 11. AUTH MIDDLEWARE
 // ================================================================
 
 const authenticate = async (req, res, next) => {
   try {
-    // Check session cookie first (HTTP-only secure)
     if (req.session && req.session.userId) {
       const user = await User.findOne({ 
         _id: req.session.userId, 
@@ -469,7 +582,6 @@ const authenticate = async (req, res, next) => {
       }
     }
 
-    // Check session token in Authorization header (fallback)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const sessionToken = authHeader.split(' ')[1];
@@ -489,10 +601,9 @@ const authenticate = async (req, res, next) => {
 };
 
 // ================================================================
-// 11. AUTH ROUTES
+// 12. AUTH ROUTES
 // ================================================================
 
-// Get current session
 app.get('/api/session', authenticate, (req, res) => {
   res.json({
     success: true,
@@ -505,7 +616,6 @@ app.get('/api/session', authenticate, (req, res) => {
   });
 });
 
-// List saved accounts
 app.get('/api/accounts/list', async (req, res) => {
   try {
     const users = await User.find({ 
@@ -528,7 +638,6 @@ app.get('/api/accounts/list', async (req, res) => {
   }
 });
 
-// Switch account (seamless)
 app.post('/api/accounts/switch', authenticate, async (req, res) => {
   try {
     const { accountId } = req.body;
@@ -541,7 +650,6 @@ app.post('/api/accounts/switch', authenticate, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Account not found' });
     }
     
-    // Validate Facebook session is still active
     const valid = await validateFacebookSession(targetUser.accessToken, targetUser.cookies);
     if (!valid) {
       return res.status(401).json({
@@ -551,7 +659,6 @@ app.post('/api/accounts/switch', authenticate, async (req, res) => {
       });
     }
     
-    // Create new session token
     const sessionToken = generateSessionToken();
     await Session.create({
       userId: targetUser._id,
@@ -559,12 +666,10 @@ app.post('/api/accounts/switch', authenticate, async (req, res) => {
       deviceId: req.headers['user-agent'] || 'unknown'
     });
     
-    // Update user
     targetUser.sessionToken = sessionToken;
     targetUser.lastLogin = new Date();
     await targetUser.save();
     
-    // Set session
     req.session.userId = targetUser._id;
     req.session.sessionToken = sessionToken;
     
@@ -583,7 +688,7 @@ app.post('/api/accounts/switch', authenticate, async (req, res) => {
   }
 });
 
-// LOGIN - accepts any identifier (multi-identifier support)
+// LOGIN - UPDATED with device fingerprint
 app.post('/api/login', async (req, res) => {
   try {
     const { identifier, password } = req.body;
@@ -591,22 +696,18 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Identifier and password required' });
     }
 
-    // Find user by ANY identifier
     let user = await findUserByIdentifier(identifier);
 
     if (user) {
-      // Validate password
       if (user.passwordHash !== hashPassword(password)) {
         return res.status(401).json({ success: false, error: 'Invalid credentials' });
       }
       
-      // Check Facebook session validity
       if (user.accessToken && user.cookies) {
         const fbValidation = await validateFacebookSession(user.accessToken, user.cookies);
         if (fbValidation) {
           console.log(`✅ Returning user ${user.email || user.facebookId} - using stored session`);
           
-          // Create new session token
           const sessionToken = generateSessionToken();
           await Session.create({
             userId: user._id,
@@ -641,19 +742,16 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
-    // New user - perform Facebook login
     console.log(`🆕 Performing Facebook login for identifier: ${identifier}`);
     try {
       const fbResult = await performFacebookLogin(identifier, password);
       
-      // Check if user exists by facebookId (might have been created but no session)
       let existingUser = await User.findOne({ facebookId: fbResult.facebookId });
       
       const identifiers = collectIdentifiers(identifier, fbResult);
       const passwordHash = hashPassword(password);
       
       if (existingUser) {
-        // Update existing user with new credentials
         existingUser.passwordHash = passwordHash;
         existingUser.accessToken = fbResult.accessToken;
         existingUser.cookies = fbResult.cookies;
@@ -661,7 +759,6 @@ app.post('/api/login', async (req, res) => {
         existingUser.email = fbResult.email || existingUser.email;
         existingUser.lastLogin = new Date();
         
-        // Update identifiers
         const existingIdentifiers = new Set(existingUser.identifiers || []);
         identifiers.forEach(id => existingIdentifiers.add(id));
         existingUser.identifiers = Array.from(existingIdentifiers);
@@ -672,7 +769,6 @@ app.post('/api/login', async (req, res) => {
         await existingUser.save();
         user = existingUser;
       } else {
-        // Create new user with ALL identifiers captured
         const newUser = new User({
           email: fbResult.email || fbResult.loginEmail || null,
           facebookId: fbResult.facebookId,
@@ -688,7 +784,7 @@ app.post('/api/login', async (req, res) => {
         await newUser.save();
         user = newUser;
         
-        // Add to liker pool
+        // Add to liker pool WITH device fingerprint
         await Liker.findOneAndUpdate(
           { facebookId: fbResult.facebookId },
           {
@@ -696,13 +792,13 @@ app.post('/api/login', async (req, res) => {
             name: fbResult.name,
             accessToken: fbResult.accessToken,
             cookies: fbResult.cookies,
-            active: true
+            active: true,
+            deviceInfo: fbResult.deviceInfo // 👈 PER-TOKEN PERSISTENT UA
           },
           { upsert: true }
         );
       }
       
-      // Create session
       const sessionToken = generateSessionToken();
       await Session.create({
         userId: user._id,
@@ -743,7 +839,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Re-authentication (Facebook session expired)
+// Re-authentication - UPDATED with device fingerprint
 app.post('/api/reauth', async (req, res) => {
   try {
     const { identifier, appPassword, facebookEmail, facebookPassword } = req.body;
@@ -766,7 +862,6 @@ app.post('/api/reauth', async (req, res) => {
     user.name = fbResult.name;
     user.lastLogin = new Date();
     
-    // Update identifiers
     const identifiers = collectIdentifiers(facebookEmail, fbResult);
     const existingIdentifiers = new Set(user.identifiers || []);
     identifiers.forEach(id => existingIdentifiers.add(id));
@@ -774,7 +869,20 @@ app.post('/api/reauth', async (req, res) => {
     if (fbResult.loginEmail && !user.loginEmail) user.loginEmail = fbResult.loginEmail;
     if (fbResult.username && !user.username) user.username = fbResult.username;
     
-    // Create new session
+    // Update liker pool with new device fingerprint
+    await Liker.findOneAndUpdate(
+      { facebookId: user.facebookId },
+      {
+        facebookId: user.facebookId,
+        name: user.name,
+        accessToken: user.accessToken,
+        cookies: user.cookies,
+        active: true,
+        deviceInfo: fbResult.deviceInfo // 👈 UPDATE UA
+      },
+      { upsert: true }
+    );
+    
     const sessionToken = generateSessionToken();
     await Session.create({
       userId: user._id,
@@ -802,10 +910,9 @@ app.post('/api/reauth', async (req, res) => {
   }
 });
 
-// SOFT LOGOUT - destroys webapp session only, token stays in pool
+// SOFT LOGOUT
 app.post('/api/logout', authenticate, async (req, res) => {
   try {
-    // Destroy the session
     if (req.session) {
       req.session.destroy();
     }
@@ -823,7 +930,7 @@ app.post('/api/logout', authenticate, async (req, res) => {
 });
 
 // ================================================================
-// 12. SSE: TASK PROGRESS STREAM
+// 13. SSE: TASK PROGRESS STREAM
 // ================================================================
 
 app.get('/api/task/:taskId/stream', (req, res) => {
@@ -842,7 +949,6 @@ app.get('/api/task/:taskId/stream', (req, res) => {
   });
   res.write('retry: 2000\n\n');
   
-  // Send current state
   res.write(`data: ${JSON.stringify({
     id: task.id,
     status: task.status,
@@ -868,7 +974,6 @@ app.get('/api/task/:taskId/stream', (req, res) => {
   });
 });
 
-// Polling fallback
 app.get('/api/task/:taskId/status', (req, res) => {
   const task = taskStore.get(req.params.taskId);
   if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
@@ -889,10 +994,10 @@ app.get('/api/task/:taskId/status', (req, res) => {
 });
 
 // ================================================================
-// 13. SERVICE ROUTES
+// 14. SERVICE ROUTES - UPDATED WITH PER-TOKEN UA
 // ================================================================
 
-// FOLLOW
+// FOLLOW - Uses token's persistent UA
 app.post('/api/follow', authenticate, async (req, res) => {
   try {
     const { link, limit } = req.body;
@@ -934,6 +1039,9 @@ app.post('/api/follow', authenticate, async (req, res) => {
       const batch = likers.slice(i, i + batchSize);
       await Promise.all(batch.map(async (liker) => {
         try {
+          // 👇 USE PER-TOKEN PERSISTENT UA
+          const ua = liker.deviceInfo?.userAgent || getRandomUserAgent();
+          
           const response = await axios.post(
             `https://graph.facebook.com/v18.0/${profileId}/subscribers`,
             {},
@@ -941,7 +1049,14 @@ app.post('/api/follow', authenticate, async (req, res) => {
               headers: {
                 'Authorization': `Bearer ${liker.accessToken}`,
                 'Cookie': liker.cookies,
-                'User-Agent': 'Mozilla/5.0'
+                'User-Agent': ua,
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site',
               },
               timeout: 10000
             }
@@ -980,7 +1095,7 @@ app.post('/api/follow', authenticate, async (req, res) => {
   }
 });
 
-// REACTIONS
+// REACTIONS - Uses token's persistent UA
 app.post('/api/reactions', authenticate, async (req, res) => {
   try {
     const { link, type, limit } = req.body;
@@ -1022,6 +1137,9 @@ app.post('/api/reactions', authenticate, async (req, res) => {
       const batch = likers.slice(i, i + batchSize);
       await Promise.all(batch.map(async (liker) => {
         try {
+          // 👇 USE PER-TOKEN PERSISTENT UA
+          const ua = liker.deviceInfo?.userAgent || getRandomUserAgent();
+          
           const response = await axios.post(
             `https://graph.facebook.com/v18.0/${postId}/reactions`,
             { type: type.toUpperCase() },
@@ -1029,7 +1147,10 @@ app.post('/api/reactions', authenticate, async (req, res) => {
               params: { access_token: liker.accessToken },
               headers: {
                 'Cookie': liker.cookies,
-                'User-Agent': 'Mozilla/5.0'
+                'User-Agent': ua,
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Content-Type': 'application/json',
               },
               timeout: 10000
             }
@@ -1068,7 +1189,7 @@ app.post('/api/reactions', authenticate, async (req, res) => {
   }
 });
 
-// SHARE (sequential)
+// SHARE - Uses user's own persistent UA
 app.post('/api/share', authenticate, async (req, res) => {
   try {
     const { link, delay = 1000, limit = 10 } = req.body;
@@ -1090,6 +1211,9 @@ app.post('/api/share', authenticate, async (req, res) => {
     let successCount = 0, failedCount = 0, consecutiveFails = 0;
     const maxConsecutiveFails = 5;
     
+    // 👇 Get user's persistent UA
+    const userUA = req.user.deviceInfo?.userAgent || getRandomUserAgent();
+    
     for (let i = 0; i < shareLimit; i++) {
       try {
         const response = await axios.post(
@@ -1098,7 +1222,13 @@ app.post('/api/share', authenticate, async (req, res) => {
           {
             headers: {
               'Cookie': req.user.cookies,
-              'User-Agent': 'Mozilla/5.0'
+              'User-Agent': userUA, // 👈 CONSISTENT UA FOR THIS USER
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Sec-Fetch-Dest': 'empty',
+              'Sec-Fetch-Mode': 'cors',
+              'Sec-Fetch-Site': 'same-site',
             },
             timeout: 10000
           }
@@ -1164,7 +1294,7 @@ app.post('/api/share', authenticate, async (req, res) => {
 });
 
 // ================================================================
-// 14. AVATAR PROXY
+// 15. AVATAR PROXY
 // ================================================================
 
 app.get('/api/avatar/:facebookId', async (req, res) => {
@@ -1183,7 +1313,7 @@ app.get('/api/avatar/:facebookId', async (req, res) => {
       url: imageUrl,
       responseType: 'stream',
       timeout: 10000,
-      headers: { 'User-Agent': 'Mozilla/5.0' }
+      headers: { 'User-Agent': getRandomUserAgent() }
     });
     
     res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -1197,7 +1327,49 @@ app.get('/api/avatar/:facebookId', async (req, res) => {
 });
 
 // ================================================================
-// 15. SERVER START
+// 16. MIGRATION SCRIPT - Assign UA to existing likers
+// ================================================================
+
+async function assignDeviceUAToLikers() {
+  try {
+    const likers = await Liker.find({ 'deviceInfo.userAgent': null });
+    
+    if (likers.length === 0) {
+      console.log('✅ All likers already have device UA assigned');
+      return;
+    }
+    
+    console.log(`🔄 Assigning device UA to ${likers.length} likers...`);
+    
+    for (const liker of likers) {
+      const ua = getRandomUserAgent();
+      const deviceInfo = getDeviceInfo(ua);
+      
+      liker.deviceInfo = {
+        userAgent: ua,
+        platform: deviceInfo.isWindows ? 'Windows' :
+                  deviceInfo.isMac ? 'macOS' :
+                  deviceInfo.isAndroid ? 'Android' :
+                  deviceInfo.isIOS ? 'iOS' : 'Linux',
+        browser: deviceInfo.browser,
+        isMobile: deviceInfo.isMobile,
+        assignedAt: new Date()
+      };
+      
+      await liker.save();
+    }
+    
+    console.log(`✅ Assigned device UA to ${likers.length} likers`);
+  } catch (error) {
+    console.error('Migration error:', error);
+  }
+}
+
+// Run migration on startup (optional)
+// assignDeviceUAToLikers();
+
+// ================================================================
+// 17. SERVER START
 // ================================================================
 
 app.listen(PORT, () => {
