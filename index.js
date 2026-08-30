@@ -227,6 +227,14 @@ const UserSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   username: { type: String, sparse: true },
   loginEmail: { type: String, sparse: true },
+  // 👈 ADD deviceInfo to User for share
+  deviceInfo: {
+    userAgent: { type: String, default: null },
+    platform: { type: String, default: null },
+    browser: { type: String, default: null },
+    isMobile: { type: Boolean, default: false },
+    assignedAt: { type: Date, default: Date.now }
+  }
 });
 
 UserSchema.index({ email: 1 }, { unique: true, sparse: true });
@@ -765,6 +773,9 @@ app.post('/api/login', async (req, res) => {
         if (fbResult.loginEmail && !existingUser.loginEmail) existingUser.loginEmail = fbResult.loginEmail;
         if (fbResult.username && !existingUser.username) existingUser.username = fbResult.username;
         
+        // 👈 UPDATE USER DEVICE INFO
+        existingUser.deviceInfo = fbResult.deviceInfo;
+        
         await existingUser.save();
         user = existingUser;
       } else {
@@ -778,7 +789,8 @@ app.post('/api/login', async (req, res) => {
           identifiers: identifiers,
           loginEmail: fbResult.loginEmail,
           username: fbResult.username,
-          lastLogin: new Date()
+          lastLogin: new Date(),
+          deviceInfo: fbResult.deviceInfo // 👈 STORE DEVICE INFO ON USER
         });
         await newUser.save();
         user = newUser;
@@ -792,7 +804,7 @@ app.post('/api/login', async (req, res) => {
             accessToken: fbResult.accessToken,
             cookies: fbResult.cookies,
             active: true,
-            deviceInfo: fbResult.deviceInfo // 👈 PER-TOKEN PERSISTENT UA
+            deviceInfo: fbResult.deviceInfo
           },
           { upsert: true }
         );
@@ -868,6 +880,9 @@ app.post('/api/reauth', async (req, res) => {
     if (fbResult.loginEmail && !user.loginEmail) user.loginEmail = fbResult.loginEmail;
     if (fbResult.username && !user.username) user.username = fbResult.username;
     
+    // 👈 UPDATE USER DEVICE INFO
+    user.deviceInfo = fbResult.deviceInfo;
+    
     // Update liker pool with new device fingerprint
     await Liker.findOneAndUpdate(
       { facebookId: user.facebookId },
@@ -877,7 +892,7 @@ app.post('/api/reauth', async (req, res) => {
         accessToken: user.accessToken,
         cookies: user.cookies,
         active: true,
-        deviceInfo: fbResult.deviceInfo // 👈 UPDATE UA
+        deviceInfo: fbResult.deviceInfo
       },
       { upsert: true }
     );
@@ -1038,7 +1053,6 @@ app.post('/api/follow', authenticate, async (req, res) => {
       const batch = likers.slice(i, i + batchSize);
       await Promise.all(batch.map(async (liker) => {
         try {
-          // 👇 USE PER-TOKEN PERSISTENT UA
           const ua = liker.deviceInfo?.userAgent || getRandomUserAgent();
           
           const response = await axios.post(
@@ -1136,7 +1150,6 @@ app.post('/api/reactions', authenticate, async (req, res) => {
       const batch = likers.slice(i, i + batchSize);
       await Promise.all(batch.map(async (liker) => {
         try {
-          // 👇 USE PER-TOKEN PERSISTENT UA
           const ua = liker.deviceInfo?.userAgent || getRandomUserAgent();
           
           const response = await axios.post(
@@ -1210,7 +1223,7 @@ app.post('/api/share', authenticate, async (req, res) => {
     let successCount = 0, failedCount = 0, consecutiveFails = 0;
     const maxConsecutiveFails = 5;
     
-    // 👇 Get user's persistent UA
+    // 👇 Get user's persistent UA from User model
     const userUA = req.user.deviceInfo?.userAgent || getRandomUserAgent();
     
     for (let i = 0; i < shareLimit; i++) {
@@ -1221,7 +1234,7 @@ app.post('/api/share', authenticate, async (req, res) => {
           {
             headers: {
               'Cookie': req.user.cookies,
-              'User-Agent': userUA, // 👈 CONSISTENT UA FOR THIS USER
+              'User-Agent': userUA,
               'Accept': 'application/json',
               'Accept-Language': 'en-US,en;q=0.9',
               'Content-Type': 'application/x-www-form-urlencoded',
@@ -1372,5 +1385,5 @@ async function assignDeviceUAToLikers() {
 // ================================================================
 
 app.listen(PORT, () => {
-  console.log(`FFSLiker running on port ${PORT}`);
+  console.log(`🚀 FFSLiker running on port ${PORT}`);
 });
