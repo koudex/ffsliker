@@ -20,7 +20,6 @@
 // 1. ENVIRONMENT & CONFIGURATION
 // ================================================================
 
-require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
