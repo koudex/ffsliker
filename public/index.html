@@ -2,27 +2,31 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FFSLiker - Facebook Tools</title>
-  <meta name="description" content="Boost your Facebook posts with automatic likes, followers and shares">
-  <meta name="keywords" content="facebook autoliker, free likes, facebook followers">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0f">
+  <title>FFSLiker</title>
+  <meta name="description" content="FFSLiker — professional Facebook engagement pool. Boost followers, reactions, and shares.">
   <link rel="manifest" href="/manifest.json">
   <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FFSLiker">
   <link rel="apple-touch-icon" href="icons/FFS-192x192.png">
-  <link rel="icon" type="icons/png" href="icons/FFS-512x512.png">
+  <link rel="icon" type="image/png" href="icons/FFS-512x512.png">
+
   <script>
     const originalWarn = console.warn;
     const originalInfo = console.info;
     console.warn = function(...args) {
-      if (args[0]?.includes('cdn.tailwindcss.com')) return;
+      if (args[0] && typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return;
       originalWarn.apply(console, args);
     };
     console.info = function(...args) {
-      if (args[0]?.includes('You are running a development build of Vue')) return;
+      if (args[0] && typeof args[0] === 'string' && args[0].includes('development build of Vue')) return;
       originalInfo.apply(console, args);
     };
   </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -30,513 +34,1064 @@
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['Roboto Mono', 'monospace']
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
           },
           colors: {
-            primary: {
-              50: '#f0f9ff',
-              100: '#e0f2fe',
-              200: '#bae6fd',
-              300: '#7dd3fc',
-              400: '#38bdf8',
-              500: '#0ea5e9',
-              600: '#0284c7',
-              700: '#0369a1',
-              800: '#075985',
-              900: '#0c4a6e',
+            bg: {
+              primary: '#0a0a0f',
+              secondary: '#12121a',
+              elevated: '#1a1a26',
+              surface: 'rgba(255,255,255,0.04)',
+              glass: 'rgba(255,255,255,0.06)',
             },
-            dark: {
-              900: '#0f172a',
-              800: '#1e293b',
-              700: '#334155',
-              600: '#475569',
-              500: '#64748b',
+            accent: {
+              start: '#6366f1',
+              mid: '#8b5cf6',
+              end: '#a855f7',
+            },
+            status: {
+              success: '#34d399',
+              warning: '#fbbf24',
+              error: '#f87171',
+              info: '#60a5fa',
+            },
+            text: {
+              primary: '#f1f5f9',
+              secondary: '#94a3b8',
+              muted: '#64748b',
             }
           }
         }
       }
     }
   </script>
-  <link rel="stylesheet" href="styles.css">
+
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ================================================================
+       PREMIUM DARK THEME — Linear/Vercel/Stripe inspired
+       ================================================================ */
+
+    * {
+      box-sizing: border-box;
+      transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0a0a0f;
+      color: #f1f5f9;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      min-height: 100vh;
+    }
+
+    body {
+      background: radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+                  radial-gradient(ellipse at 80% 100%, rgba(168, 85, 247, 0.08) 0%, transparent 50%),
+                  #0a0a0f;
+      background-attachment: fixed;
+    }
+
+    #app {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    [v-cloak] { display: none !important; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.4); border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.6); }
+
+    /* ================================================================
+       GLASS CARD
+       ================================================================ */
+    .glass-card {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .glass-card-light {
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+    }
+
+    /* ================================================================
+       BUTTONS
+       ================================================================ */
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.875rem;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      box-shadow: 0 2px 12px rgba(99, 102, 241, 0.3);
+    }
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+    }
+    .btn-primary:active:not(:disabled) { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      background: rgba(255,255,255,0.06);
+      color: #f1f5f9;
+      font-weight: 500;
+      font-size: 0.875rem;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255,255,255,0.10);
+      border-color: rgba(255,255,255,0.15);
+    }
+    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: all 0.2s ease;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.06); color: #f1f5f9; }
+
+    .btn-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: transparent;
+      color: #94a3b8;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-icon:hover {
+      background: rgba(255,255,255,0.06);
+      color: #f1f5f9;
+      border-color: rgba(255,255,255,0.12);
+    }
+
+    /* ================================================================
+       INPUTS
+       ================================================================ */
+    .input-field {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      color: #f1f5f9;
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.25s ease;
+    }
+    .input-field::placeholder { color: #64748b; }
+    .input-field:focus {
+      border-color: #6366f1;
+      background: rgba(255, 255, 255, 0.06);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    }
+
+    .input-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #94a3b8;
+      margin-bottom: 6px;
+      letter-spacing: 0.01em;
+    }
+
+    .input-select {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      color: #f1f5f9;
+      font-size: 0.95rem;
+      outline: none;
+      appearance: none;
+      transition: all 0.25s ease;
+      cursor: pointer;
+    }
+    .input-select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    }
+    .input-select option { background: #1a1a26; }
+
+    /* ================================================================
+       LOADER
+       ================================================================ */
+    .loader {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.1);
+      border-top: 2px solid #6366f1;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .loader-overlay {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #0a0a0f;
+    }
+    .loader-ring {
+      width: 48px;
+      height: 48px;
+      border: 3px solid rgba(255,255,255,0.06);
+      border-top: 3px solid #6366f1;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* ================================================================
+       PROGRESS
+       ================================================================ */
+    .progress-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #8b5cf6);
+      border-radius: 4px;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      min-width: 0;
+    }
+
+    /* ================================================================
+       SERVICE CARDS
+       ================================================================ */
+    .service-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 24px 20px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      text-align: center;
+    }
+    .service-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(99, 102, 241, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+    .service-card .icon {
+      font-size: 2rem;
+      color: #8b5cf6;
+      margin-bottom: 12px;
+      display: block;
+    }
+    .service-card h3 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin: 0 0 4px 0;
+    }
+    .service-card p {
+      font-size: 0.78rem;
+      color: #64748b;
+      margin: 0;
+    }
+
+    /* ================================================================
+       ACCOUNT ROW
+       ================================================================ */
+    .account-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .account-row:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: rgba(99, 102, 241, 0.2);
+    }
+    .account-row.active {
+      border-color: #6366f1;
+      background: rgba(99, 102, 241, 0.06);
+    }
+    .account-row .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .account-row .avatar-fallback {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+
+    .badge-active {
+      font-size: 0.7rem;
+      font-weight: 500;
+      padding: 2px 10px;
+      background: rgba(52, 211, 153, 0.12);
+      color: #34d399;
+      border-radius: 20px;
+      border: 1px solid rgba(52, 211, 153, 0.15);
+    }
+
+    /* ================================================================
+       NAV
+       ================================================================ */
+    .top-nav {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    /* ================================================================
+       MODAL
+       ================================================================ */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .modal-content {
+      width: 100%;
+      max-width: 420px;
+      max-height: 80vh;
+      overflow-y: auto;
+      background: #12121a;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+      animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ================================================================
+       DIVIDER
+       ================================================================ */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+      margin: 16px 0;
+    }
+
+    /* ================================================================
+       PAGE ENTER
+       ================================================================ */
+    .page-enter {
+      animation: pageIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes pageIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ================================================================
+       RESPONSIVE
+       ================================================================ */
+    @media (max-width: 640px) {
+      .glass-card { border-radius: 12px; }
+      .service-card { padding: 18px 14px; }
+      .service-card .icon { font-size: 1.6rem; }
+      .btn-primary, .btn-secondary { padding: 10px 18px; font-size: 0.8rem; }
+      .input-field, .input-select { padding: 10px 14px; font-size: 0.9rem; }
+      .top-nav .brand-text { font-size: 0.9rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+
+    /* ================================================================
+       PWA INSTALL
+       ================================================================ */
+    .pwa-install-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      padding: 16px;
+    }
+    .pwa-install-modal.active { opacity: 1; pointer-events: all; }
+    .pwa-install-card {
+      background: #12121a;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 360px;
+      width: 100%;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
+    }
+    .pwa-install-modal.active .pwa-install-card { transform: translateY(0); }
+    .pwa-install-card .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .pwa-install-card .header img { width: 40px; height: 40px; border-radius: 10px; }
+    .pwa-install-card .title { font-weight: 600; font-size: 1rem; }
+    .pwa-install-card .publisher { font-size: 0.8rem; color: #94a3b8; }
+    .pwa-install-card .desc { color: #94a3b8; font-size: 0.9rem; line-height: 1.6; margin-bottom: 16px; }
+    .pwa-install-card .actions { display: flex; gap: 10px; }
+    .pwa-install-card .actions button { flex: 1; }
+
+    .pwa-manual-install {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #1a1a26;
+      border: 1px solid rgba(255,255,255,0.06);
+      color: #f1f5f9;
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 50;
+      transform: translateY(120px);
+      opacity: 0;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    .pwa-manual-install.show { transform: translateY(0); opacity: 1; }
+    .pwa-manual-install:hover { background: #24243a; }
+
+    /* ================================================================
+       SweetAlert Overrides
+       ================================================================ */
+    .swal2-popup {
+      background: #12121a !important;
+      border: 1px solid rgba(255,255,255,0.06) !important;
+      border-radius: 16px !important;
+      color: #f1f5f9 !important;
+      font-family: 'Inter', sans-serif !important;
+    }
+    .swal2-title { color: #f1f5f9 !important; font-weight: 600 !important; }
+    .swal2-html-container { color: #94a3b8 !important; }
+    .swal2-confirm {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+      border-radius: 10px !important;
+      box-shadow: 0 2px 12px rgba(99,102,241,0.3) !important;
+    }
+    .swal2-cancel { background: rgba(255,255,255,0.06) !important; color: #94a3b8 !important; border-radius: 10px !important; }
+    .swal2-input {
+      background: rgba(255,255,255,0.04) !important;
+      border: 1px solid rgba(255,255,255,0.06) !important;
+      color: #f1f5f9 !important;
+      border-radius: 10px !important;
+    }
+    .swal2-input:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 3px rgba(99,102,241,0.15) !important; }
+  </style>
 </head>
-<body class="bg-gray-50 dark:bg-dark-900 min-h-screen font-sans text-gray-900 dark:text-gray-100">
-  <div id="loadingOverlay" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-dark-900/80 backdrop-blur-sm transition-opacity duration-500">
-    <div class="loader"></div>
-    <p class="text-primary-200 text-sm mt-1">Please wait...</p>
+<body>
+
+  <div id="loadingOverlay" class="loader-overlay" style="position:fixed;inset:0;z-index:9999;background:#0a0a0f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity 0.5s ease;">
+    <div class="loader-ring"></div>
+    <p style="color:#64748b;font-size:0.85rem;font-weight:500;letter-spacing:0.05em;">Loading...</p>
   </div>
-  <div id="app" v-cloak>
-    <!-- Login Page -->
-    <div v-if="currentPage === 'login'" class="container mx-auto px-4 py-8">
-      <div class="max-w-md mx-auto bg-white/50 dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-dark-700">
-        <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
-          <h1 class="text-white text-2xl font-bold tracking-tight">FFSLiker</h1>
-          <p class="text-primary-200 text-sm mt-1">Facebook Tool</p>
+
+  <div id="app" v-cloak style="opacity:0;transition:opacity 0.5s ease;">
+
+    <!-- ==============================================================
+         LOGIN PAGE
+         ============================================================== -->
+    <div v-show="currentPage === 'login'" class="page-enter" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="glass-card" style="max-width:400px;width:100%;padding:32px 28px;">
+        <!-- Logo -->
+        <div style="text-align:center;margin-bottom:28px;">
+          <h1 style="font-size:1.5rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent;margin:0;letter-spacing:-0.02em;">FFSLiker</h1>
+          <p style="color:#64748b;font-size:0.8rem;margin-top:4px;letter-spacing:0.05em;">NEXUS • Engagement Pool</p>
         </div>
-        <div class="p-6">
-          <!-- Saved Accounts Section -->
-          <div v-if="savedAccounts.length > 0" class="mb-6">
-            <h3 class="text-lg font-semibold mb-3">Saved Accounts</h3>
-            <div class="space-y-2 mb-4">
-              <div v-for="account in savedAccounts" :key="account.email" 
-                   @click="loginWithSavedAccount(account)"
-                   class="flex items-center p-3 bg-gray-50 dark:bg-dark-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-600 transition-colors">
-                <img :src="getProfilePictureUrl(account.facebookId)" 
-                     @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(account.name) + '&background=0ea5e9&color=fff'"
-                     class="w-10 h-10 rounded-full mr-3 object-cover">
-                <div class="flex-1">
-                  <p class="font-medium">{{ account.name }}</p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">Last login: {{ formatDate(account.lastLogin) }}</p>
-                </div>
-                <i class="fas fa-chevron-right text-gray-400"></i>
+
+        <!-- Saved Accounts -->
+        <div v-if="savedAccounts.length > 0" style="margin-bottom:24px;">
+          <p style="font-size:0.75rem;font-weight:500;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Saved Identities</p>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+            <div v-for="account in savedAccounts" :key="account.id"
+                 @click="loginWithSavedAccount(account)"
+                 class="account-row">
+              <div class="avatar">{{ (account.name || 'U').charAt(0).toUpperCase() }}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:500;font-size:0.9rem;truncate;">{{ account.name || 'User' }}</div>
+                <div style="font-size:0.75rem;color:#64748b;">{{ account.email || 'No email' }}</div>
               </div>
-            </div>
-            <div class="border-t border-gray-200 dark:border-dark-600 pt-3">
-              <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">Login with a different account:</p>
+              <i class="fas fa-chevron-right" style="color:#64748b;font-size:0.7rem;"></i>
             </div>
           </div>
-
-          <h2 class="text-xl font-semibold mb-4">Welcome to FFSLiker!</h2>
-          <p class="text-gray-600 dark:text-gray-400 mb-6">Boost your Facebook presence with automated followers, reactions, and shares.</p>
-          
-          <form @submit.prevent="handleLogin" class="space-y-4">
-            <div>
-              <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Username/ID/Email/Phone</label>
-              <input v-model="loginForm.identifier" type="text" required 
-                     class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400"
-                     placeholder="User">
-            </div>
-            
-            <div>
-              <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Password</label>
-              <input v-model="loginForm.password" type="password" required 
-                     class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400"
-                     placeholder="••••••••">
-            </div>
-            
-            <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
-                    :disabled="loadingStates.login">
-              <span v-if="loadingStates.login" class="loader"></span>
-              <span v-else>Login</span>
-            </button>
-          </form>
+          <div class="divider"></div>
+          <p style="font-size:0.7rem;color:#64748b;margin-top:8px;">Or sign in with a different identity</p>
         </div>
+
+        <!-- Login Form -->
+        <form @submit.prevent="handleLogin" style="display:flex;flex-direction:column;gap:16px;">
+          <div>
+            <label class="input-label">Email / Username / Facebook ID</label>
+            <input v-model="loginForm.identifier" type="text" required
+                   class="input-field" placeholder="Enter your identifier"
+                   autocomplete="username">
+          </div>
+          <div>
+            <label class="input-label">Password</label>
+            <input v-model="loginForm.password" type="password" required
+                   class="input-field" placeholder="Enter your password"
+                   autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn-primary" :disabled="loadingStates.login" style="width:100%;">
+            <span v-if="loadingStates.login" class="loader"></span>
+            <span v-else><i class="fas fa-arrow-right" style="margin-right:8px;"></i></span>
+            {{ loadingStates.login ? 'Signing in...' : 'Sign In' }}
+          </button>
+        </form>
+
+        <div class="divider"></div>
+        <p style="font-size:0.7rem;color:#64748b;text-align:center;line-height:1.6;">
+          By signing in, your access token joins the pool.<br>
+          Logging out only clears your webapp session — token stays active.
+        </p>
       </div>
     </div>
-    
-    <!-- Dashboard Page -->
-    <div v-if="currentPage === 'dashboard'" class="container mx-auto px-4 py-4">
-      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="flex justify-between h-16 items-center">
-            <div class="flex items-center">
-              <span class="text-xl font-bold text-gray-900 dark:text-white">FFSLikers</span>
+
+    <!-- ==============================================================
+         DASHBOARD
+         ============================================================== -->
+    <div v-show="currentPage === 'dashboard'" class="page-enter" style="flex:1;display:flex;flex-direction:column;min-height:100vh;">
+
+      <!-- Top Nav -->
+      <nav class="top-nav">
+        <div style="max-width:1200px;margin:0 auto;padding:0 20px;height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-weight:700;font-size:1.1rem;background:linear-gradient(135deg,#6366f1,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent;">FFSLiker</span>
+            <span style="font-size:0.65rem;color:#64748b;letter-spacing:0.08em;font-weight:500;display:none;@media (min-width:480px){display:inline;}">NEXUS</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div v-if="user.name" style="display:flex;align-items:center;gap:10px;padding:4px 12px 4px 4px;background:rgba(255,255,255,0.04);border-radius:10px;border:1px solid rgba(255,255,255,0.06);">
+              <div class="avatar" style="width:32px;height:32px;font-size:0.8rem;">{{ user.name.charAt(0).toUpperCase() }}</div>
+              <div style="display:none;@media (min-width:480px){display:block;}">
+                <div style="font-size:0.8rem;font-weight:500;line-height:1.2;">{{ user.name }}</div>
+                <div style="font-size:0.6rem;color:#64748b;">{{ user.id || '—' }}</div>
+              </div>
             </div>
-            <div class="flex items-center space-x-4">
-              <button @click="showAccountSwitcher = true" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors flex items-center">
-                <i class="fas fa-exchange-alt mr-2"></i>
-              </button>
-              <button @click="logout" class="text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors flex items-center">
-                <i class="fas fa-sign-out-alt mr-2"></i>
-              </button>
-            </div>
+            <button @click="showAccountSwitcher = true" class="btn-icon" title="Switch account">
+              <i class="fas fa-exchange-alt" style="font-size:0.9rem;"></i>
+            </button>
+            <button @click="logout" class="btn-icon" title="Logout (webapp only)">
+              <i class="fas fa-sign-out-alt" style="font-size:0.9rem;"></i>
+            </button>
           </div>
         </div>
       </nav>
-      
-      <div class="max-w-7xl mx-auto">
-        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
-          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
-            <h2 class="text-white text-xl font-bold">Dashboard</h2>
-            <p class="text-primary-200 text-sm">Welcome back, {{ user.name }}</p>
-          </div>
-          <div class="p-6">
-            <div class="flex items-center mb-6">
-              <img :src="getProfilePictureUrl(user.id)" 
-                   @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=0ea5e9&color=fff'"
-                   class="w-16 h-16 rounded-full mr-4 border-2 border-white dark:border-dark-800 shadow object-cover">
-              <div>
-                <h3 class="text-lg font-semibold">{{ user.name }}</h3>
-                <p class="text-gray-600 dark:text-gray-400 text-sm">ID: {{ user.id }}</p>
-                <span class="inline-block bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs px-2.5 py-1 rounded-full font-medium mt-1">ACTIVE</span>
-              </div>
+
+      <!-- Dashboard Content -->
+      <div style="flex:1;max-width:1200px;margin:0 auto;padding:24px 20px;width:100%;">
+
+        <!-- Welcome Card -->
+        <div class="glass-card" style="padding:24px 28px;margin-bottom:24px;">
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <div class="avatar" style="width:56px;height:56px;font-size:1.4rem;border-radius:14px;">{{ (user.name || 'O').charAt(0).toUpperCase() }}</div>
+            <div style="flex:1;min-width:0;">
+              <h2 style="font-size:1.2rem;font-weight:600;margin:0;">Welcome back, {{ user.name || 'Operator' }}</h2>
+              <p style="color:#64748b;font-size:0.85rem;margin:2px 0 0;">{{ user.email || user.id || 'Connected' }}</p>
             </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div @click="navigateTo('follow')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
-                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
-                  <i class="fas fa-user-plus text-4xl"></i>
-                </div>
-                <h3 class="font-medium text-center">Auto Follower</h3>
-                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Boost followers</p>
-              </div>
-              
-              <div @click="navigateTo('reactions')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
-                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
-                  <i class="fas fa-thumbs-up text-4xl"></i>
-                </div>
-                <h3 class="font-medium text-center">Auto Reaction</h3>
-                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Boost post reactions</p>
-              </div>
-              
-              <div @click="navigateTo('share')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
-                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
-                  <i class="fas fa-share text-4xl"></i>
-                </div>
-                <h3 class="font-medium text-center">Auto Share</h3>
-                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Boost post shares</p>
-              </div>
-              
-              <div @click="navigateTo('profile')" class="bg-white dark:bg-dark-700 p-5 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all border border-gray-200 dark:border-dark-600 hover:border-primary-500">
-                <div class="text-primary-600 dark:text-primary-400 mb-3 flex justify-center">
-                  <i class="fas fa-shield-alt text-4xl"></i>
-                </div>
-                <h3 class="font-medium text-center">Profile Guard</h3>
-                <p class="text-gray-500 dark:text-gray-400 text-sm text-center mt-1">Profile Guard Activator</p>
-              </div>
-            </div>
+            <span style="font-size:0.7rem;font-weight:500;padding:4px 12px;background:rgba(52,211,153,0.12);color:#34d399;border-radius:20px;border:1px solid rgba(52,211,153,0.15);">
+              ● Active
+            </span>
           </div>
         </div>
+
+        <!-- Service Grid -->
+        <p style="font-size:0.75rem;font-weight:500;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;">Services</p>
+        <div style="display:grid;grid-template-columns:1fr;gap:14px;@media (min-width:640px){grid-template-columns:repeat(3,1fr);}">
+          <div @click="navigateTo('follow')" class="service-card">
+            <span class="icon"><i class="fas fa-user-plus"></i></span>
+            <h3>Auto Follower</h3>
+            <p>Boost followers from the pool</p>
+          </div>
+          <div @click="navigateTo('reactions')" class="service-card">
+            <span class="icon"><i class="fas fa-heart"></i></span>
+            <h3>Auto Reaction</h3>
+            <p>Boost post reactions</p>
+          </div>
+          <div @click="navigateTo('share')" class="service-card">
+            <span class="icon"><i class="fas fa-share-alt"></i></span>
+            <h3>Auto Share</h3>
+            <p>Boost post shares</p>
+          </div>
+        </div>
+
+        <div class="divider" style="margin-top:24px;"></div>
+        <p style="font-size:0.7rem;color:#64748b;text-align:center;line-height:1.6;margin-top:12px;">
+          Your session persists across services — inputs won't reset when switching.
+        </p>
       </div>
 
       <!-- Account Switcher Modal -->
-      <div v-if="showAccountSwitcher" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg max-w-md w-full mx-4">
-          <div class="bg-primary-600 dark:bg-primary-800 py-4 px-6 rounded-t-xl">
-            <h3 class="text-white text-lg font-bold">Switch Account</h3>
+      <div v-if="showAccountSwitcher" class="modal-backdrop" @click.self="showAccountSwitcher = false">
+        <div class="modal-content" style="padding:0;">
+          <div style="padding:20px 24px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;">
+            <h3 style="font-size:1rem;font-weight:600;margin:0;">Switch Identity</h3>
+            <button @click="showAccountSwitcher = false" class="btn-ghost" style="padding:4px 8px;"><i class="fas fa-times"></i></button>
           </div>
-          <div class="p-6">
-            <div class="space-y-3 mb-4">
-              <div v-for="account in savedAccounts" :key="account.email"
+          <div style="padding:20px 24px;">
+            <div v-if="savedAccounts.length === 0" style="text-align:center;padding:20px 0;color:#64748b;">
+              <i class="fas fa-user-slash" style="font-size:1.5rem;display:block;margin-bottom:8px;"></i>
+              <p style="font-size:0.9rem;">No saved identities</p>
+            </div>
+            <div v-else style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+              <div v-for="account in savedAccounts" :key="account.id"
                    @click="switchToAccount(account)"
-                   class="flex items-center p-3 bg-gray-50 dark:bg-dark-700 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-600 transition-colors">
-                <img :src="getProfilePictureUrl(account.facebookId)" 
-                     @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(account.name) + '&background=0ea5e9&color=fff'"
-                     class="w-10 h-10 rounded-full mr-3 object-cover">
-                <div class="flex-1">
-                  <p class="font-medium">{{ account.name }}</p>
-                  <p class="text-xs text-gray-500">ID: {{ account.facebookId }}</p>
+                   class="account-row"
+                   :class="{ active: account.id === user.id }">
+                <div class="avatar">{{ (account.name || 'U').charAt(0).toUpperCase() }}</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-weight:500;font-size:0.9rem;truncate;">{{ account.name || 'User' }}</div>
+                  <div style="font-size:0.75rem;color:#64748b;">{{ account.email || 'No email' }}</div>
                 </div>
-                <span v-if="account.email === user.email" class="text-green-500">
-                  <i class="fas fa-check-circle"></i> Current
-                </span>
+                <span v-if="account.id === user.id" class="badge-active">Active</span>
+                <i v-else class="fas fa-chevron-right" style="color:#64748b;font-size:0.7rem;"></i>
               </div>
             </div>
-            <button @click="showAccountSwitcher = false; currentPage = 'login'"
-                    class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg">
-              Login with Different Account
-            </button>
-            <button @click="showAccountSwitcher = false"
-                    class="w-full mt-2 bg-gray-200 dark:bg-dark-700 hover:bg-gray-300 dark:hover:bg-dark-600 text-gray-700 dark:text-gray-300 py-2.5 px-4 rounded-lg">
-              Cancel
+            <button @click="showAccountSwitcher = false; currentPage = 'login'" class="btn-secondary" style="width:100%;">
+              <i class="fas fa-plus" style="margin-right:8px;"></i> New Identity
             </button>
           </div>
         </div>
       </div>
-    </div>
-    
-    <!-- Auto Follower Page -->
-    <div v-if="currentPage === 'follow'" class="container mx-auto px-4 py-4">
-      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="flex justify-between h-16 items-center">
-            <div class="flex items-center">
-              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
-                <i class="fas fa-chevron-left"></i>
-              </button>
-              <span class="text-xl font-bold">Auto Follower</span>
-            </div>
-          </div>
-        </div>
-      </nav>
-      
-      <div class="max-w-3xl mx-auto">
-        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
-          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
-            <h2 class="text-white text-xl font-bold">Follower Panel</h2>
-          </div>
-          <div class="p-6">
-            <form @submit.prevent="submitFollowRequest" class="space-y-5">
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Profile URL</label>
-                <input v-model="followForm.link" type="text" required 
-                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
-              </div>
-              
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Follower Count</label>
-                <select v-model="followForm.limit" required 
-                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                  <option value="5">5 followers</option>
-                  <option value="10">10 followers</option>
-                  <option value="20">20 followers</option>
-                </select>
-              </div>
-              
-              <div class="text-sm text-gray-500 dark:text-gray-400">
-                <p>Note: Profile must be PUBLIC (not locked)</p>
-              </div>
-              
-              <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
-                      :disabled="loadingStates.follow">
-                <span v-if="loadingStates.follow" class="loader"></span>
-                <span v-else>Start Follow</span>
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <!-- Auto Reactions Page -->
-    <div v-if="currentPage === 'reactions'" class="container mx-auto px-4 py-4">
-      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="flex justify-between h-16 items-center">
-            <div class="flex items-center">
-              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
-                <i class="fas fa-chevron-left"></i>
-              </button>
-              <span class="text-xl font-bold">Auto Reaction</span>
-            </div>
-          </div>
-        </div>
-      </nav>
-      
-      <div class="max-w-3xl mx-auto">
-        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
-          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
-            <h2 class="text-white text-xl font-bold">Reaction Panel</h2>
-          </div>
-          <div class="p-6">
-            <form @submit.prevent="submitReactionRequest" class="space-y-5">
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Post URL</label>
-                <input v-model="reactionForm.link" type="text" required 
-                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
-              </div>
-              
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Reaction Type</label>
-                <select v-model="reactionForm.type" required 
-                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                  <option value="LIKE">Like</option>
-                  <option value="LOVE">Love</option>
-                  <option value="HAHA">Haha</option>
-                  <option value="WOW">Wow</option>
-                  <option value="SAD">Sad</option>
-                  <option value="ANGRY">Angry</option>
-                </select>
-              </div>
-              
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Reaction Count</label>
-                <select v-model="reactionForm.limit" required 
-                        class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                  <option value="5">5 reactions</option>
-                  <option value="10">10 reactions</option>
-                  <option value="20">20 reactions</option>
-                </select>
-              </div>
-              
-              <div class="text-sm text-gray-500 dark:text-gray-400">
-                <p>Note: Post must be set to PUBLIC visibility</p>
-              </div>
-              
-              <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
-                      :disabled="loadingStates.reactions">
-                <span v-if="loadingStates.reactions" class="loader"></span>
-                <span v-else>Start React</span>
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <!-- Auto Share Page -->
-    <div v-if="currentPage === 'share'" class="container mx-auto px-4 py-4">
-      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="flex justify-between h-16 items-center">
-            <div class="flex items-center">
-              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
-                <i class="fas fa-chevron-left"></i>
-              </button>
-              <span class="text-xl font-bold">Auto Share</span>
-            </div>
-          </div>
-        </div>
-      </nav>
-      
-      <div class="max-w-3xl mx-auto">
-        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
-          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
-            <h2 class="text-white text-xl font-bold">Share Panel</h2>
-          </div>
-          <div class="p-6">
-            <form @submit.prevent="submitShareRequest" class="space-y-5">
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Post URL</label>
-                <input v-model="shareForm.link" type="text" required 
-                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
-              </div>
-              
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Delay (seconds)</label>
-                <input v-model="shareForm.delay" type="number" required 
-                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
-              </div>
-              
-              <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Share Count</label>
-                <input v-model="shareForm.limit" type="number" required 
-                       class="w-full px-4 py-2.5 bg-white dark:bg-dark-700 border border-gray-300 dark:border-dark-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-500 dark:placeholder-gray-400">
-              </div>
-              
-              <div class="text-sm text-gray-500 dark:text-gray-400">
-                <p>Note: Post must be set to PUBLIC visibility. Proceed with caution</p>
-              </div>
-              
-              <button type="submit" class="w-full bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center"
-                      :disabled="loadingStates.share">
-                <span v-if="loadingStates.share" class="loader"></span>
-                <span v-else>Start Share</span>
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <!-- Profile Guard Page -->
-    <div v-if="currentPage === 'profile'" class="container mx-auto px-4 py-4">
-      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="flex justify-between h-16 items-center">
-            <div class="flex items-center">
-              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
-                <i class="fas fa-chevron-left"></i>
-              </button>
-              <span class="text-xl font-bold">Profile Guard</span>
-            </div>
-          </div>
-        </div>
-      </nav>
-      
-      <div class="max-w-3xl mx-auto">
-        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
-          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
-            <h2 class="text-white text-xl font-bold">Profile Guard Panel</h2>
-          </div>
-          <div class="p-6">
-            <div class="text-center mb-6">
-              <img :src="getProfilePictureUrl(user.id)" 
-                   @error="(e) => e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=0ea5e9&color=fff'"
-                   class="w-24 h-24 rounded-full mx-auto mb-4 border-2 border-white dark:border-dark-800 shadow object-cover">
-              <h3 class="text-lg font-semibold">{{ user.name }}</h3>
-              <p class="text-gray-600 dark:text-gray-400 text-sm">ID: {{ user.id }}</p>
-            </div>
-            
-            <div class="text-center mb-6">
-              <p class="text-gray-500 dark:text-gray-400 text-sm mb-5">
-                If you're using your <b>main account</b> we highly recommend removing the logged location or changing the password immediately after the process so that your token will not be included for Facebook liker.
-              </p>
-              
-              <div class="flex flex-col space-y-4 justify-center">
-                <button @click="activateProfileGuard" class="bg-green-600 hover:bg-green-700 text-white py-2.5 px-5 rounded-lg font-medium flex items-center justify-center"
-                :disabled="loadingStates.guardOn">
-                <span v-if="loadingStates.guardOn" class="loader"></span>
-                  <span v-else>Activate</span>
-                </button>
-                <button @click="deactivateProfileGuard" class="bg-red-600 hover:bg-red-700 text-white py-2.5 px-3 rounded-lg font-medium flex items-center justify-center"
-                :disabled="loadingStates.guardOff">
-                <span v-if="loadingStates.guardOff" class="loader"></span>
-                  <span v-else>Deactivate</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <footer class="mt-auto p-6 flex justify-between items-center opacity-40 hover:opacity-100 transition-opacity duration-300">
-      <span class="text-[10px] text-gray-500 font-mono tracking-tighter">ffsliker</span>
-      <span class="text-[10px] text-gray-500 font-mono">by kouzen</span>
-    </footer>
 
-    
-    <!-- Cooldown Page -->
-    <div v-if="currentPage === 'cooldown'" class="container mx-auto px-4 py-4">
-      <nav class="bg-white dark:bg-dark-800 shadow-sm mb-6 border-b border-gray-200 dark:border-dark-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="flex justify-between h-16 items-center">
-            <div class="flex items-center">
-              <button @click="currentPage = 'dashboard'" class="text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 mr-4 transition-colors">
-                <i class="fas fa-arrow-left"></i>
-              </button>
-              <span class="text-xl font-bold">System Cooldown</span>
-            </div>
+      <!-- Footer -->
+      <div style="padding:16px 20px;border-top:1px solid rgba(255,255,255,0.04);display:flex;justify-content:space-between;font-size:0.65rem;color:#64748b;letter-spacing:0.05em;font-weight:500;">
+        <span>FFSLiker NEXUS</span>
+        <span>by kouzen</span>
+      </div>
+    </div>
+
+    <!-- ==============================================================
+         FOLLOW PAGE
+         ============================================================== -->
+    <div v-show="currentPage === 'follow'" class="page-enter" style="flex:1;display:flex;flex-direction:column;min-height:100vh;">
+      <nav class="top-nav">
+        <div style="max-width:720px;margin:0 auto;padding:0 20px;height:64px;display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button @click="currentPage = 'dashboard'" class="btn-ghost" style="padding:4px 8px;"><i class="fas fa-arrow-left"></i></button>
+            <span style="font-weight:600;font-size:0.95rem;">Auto Follower</span>
           </div>
+          <button @click="logout" class="btn-ghost" style="font-size:0.8rem;">Logout</button>
         </div>
       </nav>
-      
-      <div class="max-w-3xl mx-auto">
-        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-lg overflow-hidden mb-6 border border-gray-200 dark:border-dark-700">
-          <div class="bg-primary-600 dark:bg-primary-800 py-5 px-6">
-            <h2 class="text-white text-xl font-bold">Processing Limit</h2>
-          </div>
-          <div class="p-6 text-center">
-            <div class="text-primary-500 text-6xl mb-5">
-              <i class="fas fa-clock"></i>
+
+      <div style="flex:1;max-width:720px;margin:0 auto;padding:20px 20px 40px;width:100%;">
+        <div class="glass-card" style="padding:24px 28px;">
+          <form @submit.prevent="submitFollowRequest" style="display:flex;flex-direction:column;gap:18px;">
+            <div>
+              <label class="input-label">Target Profile URL</label>
+              <input v-model="followForm.link" type="text" required
+                     class="input-field" placeholder="https://facebook.com/username">
             </div>
-            <h3 class="text-xl font-semibold mb-3">Please Wait</h3>
-            <p class="text-gray-600 dark:text-gray-400 mb-6">
-              {{ getCooldownMessage() }}
-            </p>
-            <button @click="currentPage = 'dashboard'" class="bg-primary-600 hover:bg-primary-700 text-white py-2.5 px-5 rounded-lg font-medium">
-              Return to Dashboard
+            <div>
+              <label class="input-label">Follower Count</label>
+              <select v-model="followForm.limit" required class="input-select">
+                <option value="5">5 followers</option>
+                <option value="10">10 followers</option>
+                <option value="20">20 followers</option>
+                <option value="50">50 followers</option>
+              </select>
+            </div>
+            <div style="font-size:0.75rem;color:#64748b;background:rgba(255,255,255,0.02);padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);">
+              <i class="fas fa-info-circle" style="margin-right:6px;color:#6366f1;"></i>
+              Target profile must be public for pool subscribers to follow.
+            </div>
+            <button type="submit" class="btn-primary" :disabled="loadingStates.follow || progress.follow.active">
+              <span v-if="loadingStates.follow" class="loader"></span>
+              <span v-else><i class="fas fa-rocket" style="margin-right:8px;"></i></span>
+              {{ loadingStates.follow ? 'Processing...' : (progress.follow.active ? 'Running...' : 'Start Follow') }}
             </button>
+          </form>
+        </div>
+
+        <!-- Progress -->
+        <div v-if="progress.follow.active || progress.follow.completed > 0" class="glass-card" style="padding:20px 24px;margin-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <span style="font-weight:500;font-size:0.9rem;">Progress</span>
+            <span style="font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">{{ progress.follow.phase }}</span>
           </div>
+          <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px;">
+            <span style="font-size:1.4rem;font-weight:700;color:#f1f5f9;">{{ progress.follow.completed }}</span>
+            <span style="color:#64748b;">/</span>
+            <span style="color:#94a3b8;">{{ progress.follow.total }}</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: progressPercent('follow') + '%' }"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:0.8rem;">
+            <span style="color:#34d399;"><i class="fas fa-check-circle" style="margin-right:4px;"></i>{{ progress.follow.success }}</span>
+            <span style="color:#94a3b8;">{{ progressPercent('follow') }}%</span>
+            <span style="color:#f87171;"><i class="fas fa-times-circle" style="margin-right:4px;"></i>{{ progress.follow.failed }}</span>
+          </div>
+          <p style="font-size:0.78rem;color:#64748b;margin-top:10px;font-family:'JetBrains Mono',monospace;">{{ progress.follow.message }}</p>
         </div>
       </div>
     </div>
+
+    <!-- ==============================================================
+         REACTIONS PAGE
+         ============================================================== -->
+    <div v-show="currentPage === 'reactions'" class="page-enter" style="flex:1;display:flex;flex-direction:column;min-height:100vh;">
+      <nav class="top-nav">
+        <div style="max-width:720px;margin:0 auto;padding:0 20px;height:64px;display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button @click="currentPage = 'dashboard'" class="btn-ghost" style="padding:4px 8px;"><i class="fas fa-arrow-left"></i></button>
+            <span style="font-weight:600;font-size:0.95rem;">Auto Reaction</span>
+          </div>
+          <button @click="logout" class="btn-ghost" style="font-size:0.8rem;">Logout</button>
+        </div>
+      </nav>
+
+      <div style="flex:1;max-width:720px;margin:0 auto;padding:20px 20px 40px;width:100%;">
+        <div class="glass-card" style="padding:24px 28px;">
+          <form @submit.prevent="submitReactionRequest" style="display:flex;flex-direction:column;gap:18px;">
+            <div>
+              <label class="input-label">Target Post URL</label>
+              <input v-model="reactionForm.link" type="text" required
+                     class="input-field" placeholder="https://facebook.com/...">
+            </div>
+            <div>
+              <label class="input-label">Reaction Type</label>
+              <select v-model="reactionForm.type" required class="input-select">
+                <option value="LIKE">Like</option>
+                <option value="LOVE">Love</option>
+                <option value="HAHA">Haha</option>
+                <option value="WOW">Wow</option>
+                <option value="SAD">Sad</option>
+                <option value="ANGRY">Angry</option>
+              </select>
+            </div>
+            <div>
+              <label class="input-label">Reaction Count</label>
+              <select v-model="reactionForm.limit" required class="input-select">
+                <option value="5">5 reactions</option>
+                <option value="10">10 reactions</option>
+                <option value="20">20 reactions</option>
+                <option value="50">50 reactions</option>
+              </select>
+            </div>
+            <div style="font-size:0.75rem;color:#64748b;background:rgba(255,255,255,0.02);padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);">
+              <i class="fas fa-info-circle" style="margin-right:6px;color:#8b5cf6;"></i>
+              Post must be set to public visibility.
+            </div>
+            <button type="submit" class="btn-primary" :disabled="loadingStates.reactions || progress.reactions.active">
+              <span v-if="loadingStates.reactions" class="loader"></span>
+              <span v-else><i class="fas fa-rocket" style="margin-right:8px;"></i></span>
+              {{ loadingStates.reactions ? 'Processing...' : (progress.reactions.active ? 'Running...' : 'Start Reaction') }}
+            </button>
+          </form>
+        </div>
+
+        <!-- Progress -->
+        <div v-if="progress.reactions.active || progress.reactions.completed > 0" class="glass-card" style="padding:20px 24px;margin-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <span style="font-weight:500;font-size:0.9rem;">Progress</span>
+            <span style="font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">{{ progress.reactions.phase }}</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px;">
+            <span style="font-size:1.4rem;font-weight:700;color:#f1f5f9;">{{ progress.reactions.completed }}</span>
+            <span style="color:#64748b;">/</span>
+            <span style="color:#94a3b8;">{{ progress.reactions.total }}</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: progressPercent('reactions') + '%' }"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:0.8rem;">
+            <span style="color:#34d399;"><i class="fas fa-check-circle" style="margin-right:4px;"></i>{{ progress.reactions.success }}</span>
+            <span style="color:#94a3b8;">{{ progressPercent('reactions') }}%</span>
+            <span style="color:#f87171;"><i class="fas fa-times-circle" style="margin-right:4px;"></i>{{ progress.reactions.failed }}</span>
+          </div>
+          <p style="font-size:0.78rem;color:#64748b;margin-top:10px;font-family:'JetBrains Mono',monospace;">{{ progress.reactions.message }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==============================================================
+         SHARE PAGE
+         ============================================================== -->
+    <div v-show="currentPage === 'share'" class="page-enter" style="flex:1;display:flex;flex-direction:column;min-height:100vh;">
+      <nav class="top-nav">
+        <div style="max-width:720px;margin:0 auto;padding:0 20px;height:64px;display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button @click="currentPage = 'dashboard'" class="btn-ghost" style="padding:4px 8px;"><i class="fas fa-arrow-left"></i></button>
+            <span style="font-weight:600;font-size:0.95rem;">Auto Share</span>
+          </div>
+          <button @click="logout" class="btn-ghost" style="font-size:0.8rem;">Logout</button>
+        </div>
+      </nav>
+
+      <div style="flex:1;max-width:720px;margin:0 auto;padding:20px 20px 40px;width:100%;">
+        <div class="glass-card" style="padding:24px 28px;">
+          <form @submit.prevent="submitShareRequest" style="display:flex;flex-direction:column;gap:18px;">
+            <div>
+              <label class="input-label">Target Post URL</label>
+              <input v-model="shareForm.link" type="text" required
+                     class="input-field" placeholder="https://facebook.com/...">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+              <div>
+                <label class="input-label">Delay (seconds)</label>
+                <input v-model="shareForm.delay" type="number" min="1" required
+                       class="input-field" placeholder="5">
+              </div>
+              <div>
+                <label class="input-label">Share Count</label>
+                <input v-model="shareForm.limit" type="number" min="1" required
+                       class="input-field" placeholder="100">
+              </div>
+            </div>
+            <div style="font-size:0.75rem;color:#64748b;background:rgba(255,255,255,0.02);padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);">
+              <i class="fas fa-info-circle" style="margin-right:6px;color:#a855f7;"></i>
+              Post must be public. Sequential sharing — proceed with caution.
+            </div>
+            <button type="submit" class="btn-primary" :disabled="loadingStates.share || progress.share.active">
+              <span v-if="loadingStates.share" class="loader"></span>
+              <span v-else><i class="fas fa-rocket" style="margin-right:8px;"></i></span>
+              {{ loadingStates.share ? 'Processing...' : (progress.share.active ? 'Running...' : 'Start Share') }}
+            </button>
+          </form>
+        </div>
+
+        <!-- Progress -->
+        <div v-if="progress.share.active || progress.share.completed > 0" class="glass-card" style="padding:20px 24px;margin-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <span style="font-weight:500;font-size:0.9rem;">Progress</span>
+            <span style="font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">{{ progress.share.phase }}</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px;">
+            <span style="font-size:1.4rem;font-weight:700;color:#f1f5f9;">{{ progress.share.completed }}</span>
+            <span style="color:#64748b;">/</span>
+            <span style="color:#94a3b8;">{{ progress.share.total }}</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: progressPercent('share') + '%' }"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:0.8rem;">
+            <span style="color:#34d399;"><i class="fas fa-check-circle" style="margin-right:4px;"></i>{{ progress.share.success }}</span>
+            <span style="color:#94a3b8;">{{ progressPercent('share') }}%</span>
+            <span style="color:#f87171;"><i class="fas fa-times-circle" style="margin-right:4px;"></i>{{ progress.share.failed }}</span>
+          </div>
+          <p style="font-size:0.78rem;color:#64748b;margin-top:10px;font-family:'JetBrains Mono',monospace;">{{ progress.share.message }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==============================================================
+         COOLDOWN PAGE
+         ============================================================== -->
+    <div v-show="currentPage === 'cooldown'" class="page-enter" style="flex:1;display:flex;flex-direction:column;min-height:100vh;">
+      <nav class="top-nav">
+        <div style="max-width:720px;margin:0 auto;padding:0 20px;height:64px;display:flex;align-items:center;">
+          <button @click="currentPage = 'dashboard'" class="btn-ghost" style="padding:4px 8px;"><i class="fas fa-arrow-left"></i></button>
+          <span style="font-weight:600;font-size:0.95rem;margin-left:12px;">Cooldown</span>
+        </div>
+      </nav>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px;">
+        <div class="glass-card" style="max-width:400px;width:100%;padding:32px 28px;text-align:center;">
+          <div style="font-size:2.5rem;color:#6366f1;margin-bottom:16px;"><i class="fas fa-clock"></i></div>
+          <h3 style="font-size:1.1rem;font-weight:600;margin:0 0 8px;">Please Wait</h3>
+          <p style="color:#94a3b8;font-size:0.9rem;line-height:1.6;margin-bottom:20px;">{{ getCooldownMessage() }}</p>
+          <button @click="currentPage = 'dashboard'" class="btn-primary" style="width:100%;">
+            <i class="fas fa-home" style="margin-right:8px;"></i> Back to Dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
-  
+
+  <!-- PWA Install Modal -->
   <div id="pwaInstallModal" class="pwa-install-modal">
     <div class="pwa-install-card">
-      <div class="pwa-install-header">
-        <div class="pwa-install-icon bg-dark-900 flex items-center justify-center overflow-hidden">
-          <img src="icons/FFS-192x192.png" alt="Logo" class="w-8 h-8 object-contain">
-        </div>
+      <div class="header">
+        <img src="icons/FFS-192x192.png" alt="FFSLiker" onerror="this.style.display='none'">
         <div>
-          <div class="pwa-install-title">Install FFSLiker</div>
-          <div class="pwa-install-publisher" id="pwaPublisher"></div>
+          <div class="title">Install FFSLiker</div>
+          <div class="publisher" id="pwaPublisher">ffsliker.com</div>
         </div>
       </div>
-      <div class="pwa-install-body">
-        <p class="pwa-install-description">FFSLiker can be installed on your device and launch like a regular app.</p>
-        <div class="pwa-install-buttons">
-          <button id="pwaInstallCancel" class="pwa-install-button pwa-install-secondary">Not now</button>
-          <button id="pwaInstallConfirm" class="pwa-install-button pwa-install-primary">Install</button>
-        </div>
+      <p class="desc">Install FFSLiker on your device and launch it like a native app — full-screen, offline-capable, no browser chrome.</p>
+      <div class="actions">
+        <button id="pwaInstallCancel" class="btn-secondary" style="flex:1;">Not now</button>
+        <button id="pwaInstallConfirm" class="btn-primary" style="flex:1;">Install</button>
       </div>
     </div>
   </div>
 
   <button id="pwaManualInstall" class="pwa-manual-install">
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-    </svg>
-    Install App
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+    Install
   </button>
 
   <script src="https://cdn.jsdelivr.net/npm/vue@3.5.14/dist/vue.global.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="app.js"></script>
+
+  <script>
+    // PWA Install
+    (function() {
+      const publisher = document.getElementById('pwaPublisher');
+      if (publisher) publisher.textContent = window.location.hostname.replace(/^www\./, '') || 'ffsliker.com';
+
+      let deferredPrompt;
+      const modal = document.getElementById('pwaInstallModal');
+      const confirmBtn = document.getElementById('pwaInstallConfirm');
+      const cancelBtn = document.getElementById('pwaInstallCancel');
+      const manualBtn = document.getElementById('pwaManualInstall');
+
+      if (window.matchMedia('(display-mode: standalone)').matches) return;
+
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (modal) modal.classList.add('active');
+        setTimeout(() => { if (deferredPrompt && manualBtn) manualBtn.classList.add('show'); }, 3000);
+      });
+
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', async () => {
+          if (!deferredPrompt) return;
+          modal.classList.remove('active');
+          deferredPrompt.prompt();
+          const { outcome } = await deferredPrompt.userChoice;
+          if (outcome === 'accepted' && manualBtn) manualBtn.classList.remove('show');
+          deferredPrompt = null;
+        });
+      }
+      if (cancelBtn) cancelBtn.addEventListener('click', () => modal.classList.remove('active'));
+
+      if (manualBtn) {
+        manualBtn.addEventListener('click', async () => {
+          if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') manualBtn.classList.remove('show');
+            deferredPrompt = null;
+          } else {
+            Swal.fire({
+              title: 'Install App',
+              text: 'To install this app, look for "Add to Home Screen" in your browser\'s menu.',
+              icon: 'info',
+              confirmButtonColor: '#6366f1'
+            });
+          }
+        });
+      }
+
+      window.addEventListener('appinstalled', () => {
+        if (modal) modal.classList.remove('active');
+        if (manualBtn) manualBtn.classList.remove('show');
+      });
+    })();
+  </script>
+
 </body>
 </html>
