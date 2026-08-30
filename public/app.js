@@ -1,5 +1,5 @@
 /**
- * FFSLiker NEXUS - Premium UI Controller
+ * FFSLiker Premium UI Controller
  * @module app
  * 
  * Features:
@@ -22,23 +22,7 @@ const API_BASE = '/api';
 const COOLDOWN_MINUTES = 30;
 
 // ================================================================
-// 2. STATE MANAGEMENT
-// ================================================================
-
-const state = reactive({
-  currentPage: 'login',
-  user: { id: '', name: '', email: '', sessionToken: '' },
-  savedAccounts: [],
-  loading: { login: false, follow: false, reactions: false, share: false },
-  progress: {
-    follow: { active: false, total: 0, completed: 0, success: 0, failed: 0 },
-    reactions: { active: false, total: 0, completed: 0, success: 0, failed: 0 },
-    share: { active: false, total: 0, completed: 0, success: 0, failed: 0 }
-  }
-});
-
-// ================================================================
-// 3. API SERVICES
+// 2. API SERVICES
 // ================================================================
 
 const api = {
@@ -79,7 +63,7 @@ const api = {
 };
 
 // ================================================================
-// 4. UI CONTROLLERS
+// 3. UI CONTROLLERS
 // ================================================================
 
 const ui = {
@@ -103,28 +87,11 @@ const ui = {
       icon: 'error',
       confirmButtonColor: '#6366f1'
     });
-  },
-  
-  updateProgress(tool, data) {
-    const p = state.progress[tool];
-    if (!p) return;
-    if (typeof data.total === 'number') p.total = data.total;
-    if (typeof data.completed === 'number') p.completed = data.completed;
-    if (typeof data.success === 'number') p.success = data.success;
-    if (typeof data.failed === 'number') p.failed = data.failed;
-    if (typeof data.phase === 'string') p.phase = data.phase;
-    if (typeof data.message === 'string') p.message = data.message;
-    if (data.status === 'complete' || data.status === 'failed') {
-      p.active = false;
-      if (data.status === 'complete') {
-        ui.showToast(`Completed: ${p.success} successful, ${p.failed} failed`);
-      }
-    }
   }
 };
 
 // ================================================================
-// 5. VUE APP
+// 4. VUE APP
 // ================================================================
 
 const { createApp, ref, reactive, onMounted, computed } = Vue;
@@ -172,6 +139,10 @@ createApp({
     // --- SSE connections ---
     const sseConnections = ref({});
 
+    // ================================================================
+    // Computed
+    // ================================================================
+    
     const progressPercent = (tool) => {
       const p = progress[tool];
       if (!p || !p.total) return 0;
@@ -223,7 +194,7 @@ createApp({
         es.onmessage = (ev) => {
           try {
             const d = JSON.parse(ev.data);
-            ui.updateProgress(tool, d);
+            applyTaskUpdate(tool, d);
           } catch (e) {}
         };
         es.addEventListener('end', () => {
@@ -243,7 +214,7 @@ createApp({
         try {
           const r = await axios.get(`/api/task/${taskId}/status`);
           if (r.data && r.data.success) {
-            ui.updateProgress(tool, r.data);
+            applyTaskUpdate(tool, r.data);
             if (r.data.status === 'complete' || r.data.status === 'failed') {
               clearInterval(interval);
             }
@@ -253,6 +224,24 @@ createApp({
         }
       }, 1500);
       sseConnections.value[tool + '_poll'] = interval;
+    };
+
+    const applyTaskUpdate = (tool, d) => {
+      const p = progress[tool];
+      if (!p) return;
+      if (typeof d.total === 'number') p.total = d.total;
+      if (typeof d.completed === 'number') p.completed = d.completed;
+      if (typeof d.success === 'number') p.success = d.success;
+      if (typeof d.failed === 'number') p.failed = d.failed;
+      if (typeof d.phase === 'string') p.phase = d.phase;
+      if (typeof d.message === 'string') p.message = d.message;
+      if (d.status === 'complete' || d.status === 'failed') {
+        p.active = false;
+        if (d.status === 'complete') {
+          ui.showToast(`Completed: ${p.success} successful, ${p.failed} failed`);
+        }
+        closeSse(tool);
+      }
     };
 
     const closeSse = (tool) => {
@@ -563,6 +552,11 @@ createApp({
       return date.toLocaleDateString();
     };
 
+    const getProfilePictureUrl = (facebookId) => {
+      if (!facebookId) return '';
+      return `/api/avatar/${facebookId}`;
+    };
+
     // ================================================================
     // Lifecycle
     // ================================================================
@@ -612,7 +606,8 @@ createApp({
       submitReactionRequest,
       submitShareRequest,
       getCooldownMessage,
-      formatDate
+      formatDate,
+      getProfilePictureUrl
     };
   }
 }).mount('#app');
