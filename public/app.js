@@ -1,682 +1,463 @@
-// ============== app.js (Updated) ==============
-window.addEventListener('load', function() {
-  const loadingOverlay = document.getElementById('loadingOverlay');
-  const app = document.getElementById('app');
-  
-  setTimeout(() => {
-    loadingOverlay.style.opacity = '0';
-    app.style.opacity = '1';
-    setTimeout(() => {
-      loadingOverlay.style.display = 'none';
-    }, 500);
-  }, 1500);
+/**
+ * FFSLiker NEXUS - Premium UI Controller
+ * @module app
+ * 
+ * Features:
+ * - Routeless navigation (v-show preserves state)
+ * - Real-time SSE progress streaming
+ * - Seamless account switching
+ * - Soft logout (webapp only)
+ * - Responsive PWA
+ * 
+ * @requires Vue 3
+ * @requires Axios
+ * @requires SweetAlert2
+ */
+
+// ================================================================
+// 1. CONFIGURATION & CONSTANTS
+// ================================================================
+
+const API_BASE = '/api';
+const COOLDOWN_MINUTES = 30;
+
+// ================================================================
+// 2. STATE MANAGEMENT
+// ================================================================
+
+const state = reactive({
+  currentPage: 'login',
+  user: { id: '', name: '', email: '', sessionToken: '' },
+  savedAccounts: [],
+  loading: { login: false, follow: false, reactions: false, share: false },
+  progress: {
+    follow: { active: false, total: 0, completed: 0, success: 0, failed: 0 },
+    reactions: { active: false, total: 0, completed: 0, success: 0, failed: 0 },
+    share: { active: false, total: 0, completed: 0, success: 0, failed: 0 }
+  }
 });
 
-// Dynamic PWA publisher name
-const publisherElement = document.getElementById('pwaPublisher');
-if (publisherElement) {
-  const hostname = window.location.hostname;
-  const cleanHostname = hostname.replace(/^www\./, '');
-  publisherElement.textContent = cleanHostname;
-}
+// ================================================================
+// 3. API SERVICES
+// ================================================================
 
-// PWA Installation logic
-document.addEventListener('DOMContentLoaded', () => {
-  let deferredPrompt;
-  const installModal = document.getElementById('pwaInstallModal');
-  const installConfirm = document.getElementById('pwaInstallConfirm');
-  const installCancel = document.getElementById('pwaInstallCancel');
-  const manualInstall = document.getElementById('pwaManualInstall');
+const api = {
+  async login(identifier, password) {
+    const response = await axios.post('/api/login', { identifier, password });
+    return response.data;
+  },
   
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-  if (isStandalone) {
-    console.log('App is running as PWA');
-    return;
+  async switchAccount(accountId) {
+    const response = await axios.post('/api/accounts/switch', { accountId });
+    return response.data;
+  },
+  
+  async logout() {
+    const response = await axios.post('/api/logout');
+    return response.data;
+  },
+  
+  async startFollow(link, limit) {
+    const response = await axios.post('/api/follow', { link, limit });
+    return response.data;
+  },
+  
+  async startReaction(link, type, limit) {
+    const response = await axios.post('/api/reactions', { link, type, limit });
+    return response.data;
+  },
+  
+  async startShare(link, delay, limit) {
+    const response = await axios.post('/api/share', { link, delay, limit });
+    return response.data;
+  },
+  
+  async getSavedAccounts() {
+    const response = await axios.get('/api/accounts/list');
+    return response.data;
   }
+};
+
+// ================================================================
+// 4. UI CONTROLLERS
+// ================================================================
+
+const ui = {
+  showToast(message, type = 'success') {
+    Swal.fire({
+      title: type === 'success' ? 'Success' : type === 'error' ? 'Error' : 'Info',
+      text: message,
+      icon: type,
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true
+    });
+  },
   
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    
-    installModal.classList.add('active');
-    
-    setTimeout(() => {
-      if (deferredPrompt) {
-        manualInstall.classList.add('show');
+  showError(message) {
+    Swal.fire({
+      title: 'Error',
+      text: message,
+      icon: 'error',
+      confirmButtonColor: '#6366f1'
+    });
+  },
+  
+  updateProgress(tool, data) {
+    const p = state.progress[tool];
+    if (!p) return;
+    if (typeof data.total === 'number') p.total = data.total;
+    if (typeof data.completed === 'number') p.completed = data.completed;
+    if (typeof data.success === 'number') p.success = data.success;
+    if (typeof data.failed === 'number') p.failed = data.failed;
+    if (typeof data.phase === 'string') p.phase = data.phase;
+    if (typeof data.message === 'string') p.message = data.message;
+    if (data.status === 'complete' || data.status === 'failed') {
+      p.active = false;
+      if (data.status === 'complete') {
+        ui.showToast(`Completed: ${p.success} successful, ${p.failed} failed`);
       }
-    }, 3000);
-  });
-  
-  if (installConfirm) {
-    installConfirm.addEventListener('click', async () => {
-      if (!deferredPrompt) return;
-      
-      installModal.classList.remove('active');
-      deferredPrompt.prompt();
-      
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log('User response: ' + outcome);
-      deferredPrompt = null;
-    });
+    }
   }
-  
-  if (installCancel) {
-    installCancel.addEventListener('click', () => {
-      installModal.classList.remove('active');
-    });
-  }
-  
-  if (manualInstall) {
-    manualInstall.addEventListener('click', async () => {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log('User response: ' + outcome);
-        
-        if (outcome === 'accepted') {
-          manualInstall.classList.remove('show');
-        }
-      } else {
-        Swal.fire({
-          title: 'Install App',
-          text: 'To install this app, look for the "Add to Home Screen" option in your browser\'s menu.',
-          icon: 'info',
-          background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#ffffff',
-          color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000'
-        });
-      }
-    });
-  }
-  
-  window.addEventListener('appinstalled', () => {
-    installModal.classList.remove('active');
-    if (manualInstall) manualInstall.classList.remove('show');
-    console.log('PWA was installed');
-  });
-});
+};
 
-window.addEventListener('error', function(event) {
-  console.error('Global error:', event.error || event.message, 'at', event.filename, 'line', event.lineno);
-});
+// ================================================================
+// 5. VUE APP
+// ================================================================
 
-const { createApp, ref, onMounted } = Vue;
+const { createApp, ref, reactive, onMounted, computed } = Vue;
 
 createApp({
   setup() {
+    // --- Routing ---
     const currentPage = ref('login');
-    const loadingStates = ref({
-      login: false,
-      follow: false,
-      reactions: false,
-      share: false,
-      guardOn: false,
-      guardOff: false,
-      sessionCheck: true
-    });
-    
+
+    // --- User state ---
     const user = ref({
       id: '',
       email: '',
       name: '',
-      token: '',
-      cookies: '',
-      sessionToken: '',
-      identifiers: [],
-      loginEmail: '',
-      loginPhone: '',
-      loginUsername: ''
+      sessionToken: ''
     });
-    
+
+    // --- Saved accounts ---
     const savedAccounts = ref([]);
     const showAccountSwitcher = ref(false);
     const cooldownTime = ref(0);
-    const needsFacebookReauth = ref(false);
-    
-    const loginForm = ref({
-      identifier: '',  // Changed from 'email' to 'identifier'
-      password: ''
-    });
-    
-    const reauthForm = ref({
-      facebookEmail: '',
-      facebookPassword: ''
-    });
-    
-    const followForm = ref({
-      link: '',
-      limit: '5'
-    });
-    
-    const reactionForm = ref({
-      link: '',
-      type: 'WOW',
-      limit: '5'
-    });
-    
-    const shareForm = ref({
-      link: '',
-      delay: '5',
-      limit: '100'
+
+    // --- Loading states ---
+    const loadingStates = reactive({
+      login: false,
+      follow: false,
+      reactions: false,
+      share: false,
+      sessionCheck: true
     });
 
-    // Helper function to decrypt user data from encrypted session
-    const decryptUserData = (encryptedData) => {
-      // Note: This is just storing the encrypted data.
-      // Actual decryption happens server-side.
-      // The client only stores the encrypted blob.
-      try {
-        // We don't actually decrypt on client side
-        // Just store the encrypted string
-        return encryptedData;
-      } catch (error) {
-        console.error('Error handling encrypted data:', error);
-        return null;
-      }
+    // --- Forms ---
+    const loginForm = ref({ identifier: '', password: '' });
+    const followForm = ref({ link: '', limit: '5' });
+    const reactionForm = ref({ link: '', type: 'LIKE', limit: '5' });
+    const shareForm = ref({ link: '', delay: '5', limit: '100' });
+
+    // --- Progress tracking ---
+    const progress = reactive({
+      follow:    { active: false, total: 0, completed: 0, success: 0, failed: 0, phase: 'idle', message: '' },
+      reactions: { active: false, total: 0, completed: 0, success: 0, failed: 0, phase: 'idle', message: '' },
+      share:     { active: false, total: 0, completed: 0, success: 0, failed: 0, phase: 'idle', message: '' }
+    });
+
+    // --- SSE connections ---
+    const sseConnections = ref({});
+
+    const progressPercent = (tool) => {
+      const p = progress[tool];
+      if (!p || !p.total) return 0;
+      return Math.min(100, Math.round((p.completed / p.total) * 100));
     };
 
-    const getDeviceToken = () => {
-      let deviceToken = localStorage.getItem('deviceToken');
-      if (!deviceToken) {
-        deviceToken = generateDeviceToken();
-        localStorage.setItem('deviceToken', deviceToken);
-      }
-      return deviceToken;
-    };
-
-    const generateDeviceToken = () => {
-      const array = new Uint8Array(32);
-      crypto.getRandomValues(array);
-      return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-    };
-
-    const saveSessionToLocalStorage = (sessionData) => {
-      try {
-        const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        // Store only the encrypted data and minimal metadata
-        sessions[sessionData.encryptedData] = {
-          encryptedData: sessionData.encryptedData,
-          sessionToken: sessionData.sessionToken,
-          lastLogin: new Date().toISOString(),
-          // Store minimal non-sensitive metadata for UI
-          metadata: {
-            name: sessionData.name,
-            id: sessionData.id
-          }
-        };
-        localStorage.setItem('sessions', JSON.stringify(sessions));
-        updateSavedAccountsList();
-      } catch (error) {
-        console.error('Error saving session:', error);
-      }
-    };
-
-    const removeSessionFromLocalStorage = (encryptedDataKey) => {
-      try {
-        const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        delete sessions[encryptedDataKey];
-        localStorage.setItem('sessions', JSON.stringify(sessions));
-        updateSavedAccountsList();
-      } catch (error) {
-        console.error('Error removing session:', error);
-      }
-    };
-
+    // ================================================================
+    // Account management
+    // ================================================================
+    
     const updateSavedAccountsList = async () => {
       try {
-        const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        const accounts = Object.values(sessions).sort((a, b) => 
-          new Date(b.lastLogin) - new Date(a.lastLogin)
-        );
-        savedAccounts.value = accounts;
+        const response = await api.getSavedAccounts();
+        if (response.success) {
+          savedAccounts.value = response.accounts || [];
+        }
       } catch (error) {
-        console.error('Error updating accounts list:', error);
+        console.error('Failed to load saved accounts:', error);
         savedAccounts.value = [];
       }
     };
 
-    const formatDate = (dateString) => {
-      if (!dateString) return 'Unknown';
-      const date = new Date(dateString);
-      const now = new Date();
-      const diff = now - date;
-      
-      if (diff < 60000) return 'Just now';
-      if (diff < 3600000) return Math.floor(diff / 60000) + ' minutes ago';
-      if (diff < 86400000) return Math.floor(diff / 3600000) + ' hours ago';
-      return date.toLocaleDateString();
+    const saveSession = async (session) => {
+      // Session is saved server-side via HTTP-only cookies
+      // This method is kept for API compatibility
+      await updateSavedAccountsList();
     };
 
-    const getProfilePictureUrl = (facebookId, accessToken = null) => {
-      if (!facebookId) return '';
-      return `/api/avatar/${facebookId}`;
+    // ================================================================
+    // SSE progress watcher
+    // ================================================================
+    
+    const watchTaskProgress = (tool, taskId) => {
+      // Close any existing connection for this tool
+      if (sseConnections.value[tool]) {
+        try { sseConnections.value[tool].close(); } catch (e) {}
+      }
+
+      const p = progress[tool];
+      p.active = true;
+      p.phase = 'connecting';
+
+      // Prefer SSE
+      let es = null;
+      try {
+        es = new EventSource(`/api/task/${taskId}/stream`);
+        sseConnections.value[tool] = es;
+
+        es.onmessage = (ev) => {
+          try {
+            const d = JSON.parse(ev.data);
+            ui.updateProgress(tool, d);
+          } catch (e) {}
+        };
+        es.addEventListener('end', () => {
+          closeSse(tool);
+        });
+        es.onerror = () => {
+          closeSse(tool);
+          startPolling(tool, taskId);
+        };
+      } catch (e) {
+        startPolling(tool, taskId);
+      }
     };
 
+    const startPolling = (tool, taskId) => {
+      const interval = setInterval(async () => {
+        try {
+          const r = await axios.get(`/api/task/${taskId}/status`);
+          if (r.data && r.data.success) {
+            ui.updateProgress(tool, r.data);
+            if (r.data.status === 'complete' || r.data.status === 'failed') {
+              clearInterval(interval);
+            }
+          }
+        } catch (e) {
+          clearInterval(interval);
+        }
+      }, 1500);
+      sseConnections.value[tool + '_poll'] = interval;
+    };
+
+    const closeSse = (tool) => {
+      if (sseConnections.value[tool]) {
+        try { sseConnections.value[tool].close(); } catch (e) {}
+        delete sseConnections.value[tool];
+      }
+      if (sseConnections.value[tool + '_poll']) {
+        clearInterval(sseConnections.value[tool + '_poll']);
+        delete sseConnections.value[tool + '_poll'];
+      }
+    };
+
+    const resetProgress = (tool) => {
+      const p = progress[tool];
+      p.active = false;
+      p.total = 0;
+      p.completed = 0;
+      p.success = 0;
+      p.failed = 0;
+      p.phase = 'idle';
+      p.message = '';
+    };
+
+    // ================================================================
+    // Session check on boot
+    // ================================================================
+    
     const checkSession = async () => {
       try {
         await updateSavedAccountsList();
-        
-        const sessions = JSON.parse(localStorage.getItem('sessions') || '{}');
-        const sessionKeys = Object.keys(sessions);
-        
-        if (sessionKeys.length > 0) {
+        if (savedAccounts.value.length > 0) {
           const mostRecent = savedAccounts.value[0];
-          if (mostRecent && mostRecent.sessionToken) {
+          if (mostRecent && mostRecent.id) {
             try {
-              const response = await axios.get('/api/session', {
-                headers: { 'Authorization': 'Bearer ' + mostRecent.encryptedData }
-              });
-              
-              if (response.data.success) {
-                // Decrypt the session data (server already did)
-                // The response contains encryptedData but we trust it
-                user.value.sessionToken = mostRecent.sessionToken;
-                user.value.encryptedData = response.data.encryptedData;
-                
-                // We need to make a separate call to get user data
-                // The server's /api/session returns encryptedData that we can use
-                await refreshUserData();
-                
+              const r = await axios.get('/api/session');
+              if (r.data && r.data.success) {
+                user.value.id = r.data.user?.id || mostRecent.id;
+                user.value.name = r.data.user?.name || mostRecent.name || 'Operator';
+                user.value.email = r.data.user?.email || mostRecent.email || '';
+                user.value.sessionToken = r.data.sessionToken || mostRecent.sessionToken;
                 currentPage.value = 'dashboard';
-                
-                Swal.fire({
-                  title: 'Welcome back!',
-                  text: `Logged in as ${user.value.name}`,
-                  icon: 'success',
-                  toast: true,
-                  position: 'top-end',
-                  showConfirmButton: false,
-                  timer: 3000,
-                  background: '#1e293b',
-                  color: '#ffffff'
-                });
+                ui.showToast(`Welcome back, ${user.value.name}`, 'success');
                 return;
               }
-            } catch (error) {
-              if (mostRecent.encryptedData) {
-                removeSessionFromLocalStorage(mostRecent.encryptedData);
-              }
+            } catch (e) {
+              // Session expired - fall through to login
             }
           }
         }
       } catch (error) {
         console.error('Session check error:', error);
       } finally {
-        loadingStates.value.sessionCheck = false;
+        loadingStates.sessionCheck = false;
       }
     };
 
-    const refreshUserData = async () => {
-      try {
-        if (!user.value.sessionToken) return;
-        
-        const response = await axios.get('/api/session', {
-          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
-        });
-        
-        if (response.data.success) {
-          // The server returns encrypted data that contains user info
-          // We need to store the encrypted data and extract metadata
-          user.value.encryptedData = response.data.encryptedData;
-          
-          // For display purposes, we need to extract name and id from the encrypted data
-          // Since we can't decrypt on client, we store metadata during login
-          // For now, use stored metadata
-        }
-      } catch (error) {
-        console.error('Refresh user data error:', error);
-      }
-    };
-
-    const switchAccount = async (account) => {
-      if (account.encryptedData === user.value.encryptedData) {
-        showAccountSwitcher.value = false;
-        return;
-      }
-      await switchToAccount(account);
-    };
-
-    const switchToAccount = async (account) => {
-      try {
-        loadingStates.value.login = true;
-        
-        const response = await axios.post('/api/accounts/switch', {
-          sessionToken: account.sessionToken
-        });
-        
-        if (response.data.success) {
-          user.value.encryptedData = response.data.encryptedData;
-          user.value.sessionToken = response.data.sessionToken;
-          user.value.name = account.metadata?.name || 'User';
-          user.value.id = account.metadata?.id || '';
-          
-          showAccountSwitcher.value = false;
-          
-          saveSessionToLocalStorage({
-            encryptedData: response.data.encryptedData,
-            sessionToken: response.data.sessionToken,
-            name: user.value.name,
-            id: user.value.id
-          });
-          
-          Swal.fire({
-            title: 'Success',
-            text: `Switched to ${user.value.name}`,
-            icon: 'success',
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 3000,
-            background: '#1e293b',
-            color: '#ffffff'
-          });
-        }
-      } catch (error) {
-        console.error('Switch account error:', error);
-        Swal.fire({
-          title: 'Error',
-          text: 'Failed to switch account. Please login again.',
-          icon: 'error',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-      } finally {
-        loadingStates.value.login = false;
-      }
-    };
-
-    const loginWithSavedAccount = async (account) => {
-      if (!account.sessionToken || !account.encryptedData) {
-        Swal.fire({
-          title: 'Error',
-          text: 'Invalid session. Please login manually.',
-          icon: 'error',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-        return;
-      }
-      
-      loadingStates.value.login = true;
-      
-      try {
-        const response = await axios.get('/api/session', {
-          headers: { 'Authorization': 'Bearer ' + account.encryptedData }
-        });
-        
-        if (response.data.success) {
-          user.value.encryptedData = response.data.encryptedData;
-          user.value.sessionToken = account.sessionToken;
-          user.value.name = account.metadata?.name || 'User';
-          user.value.id = account.metadata?.id || '';
-          
-          currentPage.value = 'dashboard';
-          
-          Swal.fire({
-            title: 'Welcome back!',
-            text: `Logged in as ${user.value.name}`,
-            icon: 'success',
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 3000,
-            background: '#1e293b',
-            color: '#ffffff'
-          });
-        } else {
-          removeSessionFromLocalStorage(account.encryptedData);
-          Swal.fire({
-            title: 'Session Expired',
-            text: 'Please login again manually.',
-            icon: 'warning',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
-        }
-      } catch (error) {
-        console.error('Auto-login error:', error);
-        if (account.encryptedData) {
-          removeSessionFromLocalStorage(account.encryptedData);
-        }
-        Swal.fire({
-          title: 'Login Failed',
-          text: 'Could not login with saved account. Please login manually.',
-          icon: 'error',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-      } finally {
-        loadingStates.value.login = false;
-      }
-    };
-
-    const getCooldownMessage = () => {
-      const tool = localStorage.getItem('cooldownTool');
-      const baseMessage = 'Please wait for ' + cooldownTime.value + ' minutes before submitting again.';
-      
-      if (tool === 'follow') {
-        return 'Auto Follower tool is cooling down. ' + baseMessage;
-      } else if (tool === 'reactions') {
-        return 'Auto Reactions tool is cooling down. ' + baseMessage;
-      }
-      return baseMessage;
-    };
-
-    onMounted(() => {
-      checkSession();
-    });
-
+    // ================================================================
+    // LOGIN
+    // ================================================================
+    
     const handleLogin = async () => {
       try {
-        loadingStates.value.login = true;
-        
-        const response = await axios.post('/api/login', {
-          identifier: loginForm.value.identifier,
-          password: loginForm.value.password
-        });
-        
-        if (response.data.success) {
-          user.value.encryptedData = response.data.encryptedData;
-          user.value.sessionToken = response.data.sessionToken;
-          
-          // Extract metadata from response (server can include non-sensitive info)
-          // For now, we need a separate call to get user info or server can include minimal metadata
-          // Let's make a call to get user info
-          const sessionResponse = await axios.get('/api/session', {
-            headers: { 'Authorization': 'Bearer ' + response.data.encryptedData }
-          });
-          
-          if (sessionResponse.data.success) {
-            // For display, we need to decrypt - but since we can't on client,
-            // we'll have the server return minimal non-sensitive metadata separately
-            // For now, we'll store the encrypted data and use a placeholder
-            user.value.name = 'User';
-            user.value.id = '';
-          }
-          
-          saveSessionToLocalStorage({
-            encryptedData: response.data.encryptedData,
-            sessionToken: response.data.sessionToken,
+        loadingStates.login = true;
+        const result = await api.login(loginForm.value.identifier, loginForm.value.password);
+
+        if (result.success) {
+          user.value.id = result.user?.id || '';
+          user.value.name = result.user?.name || 'Operator';
+          user.value.email = result.user?.email || '';
+          user.value.sessionToken = result.sessionToken || '';
+
+          await saveSession({
+            id: user.value.id,
             name: user.value.name,
-            id: user.value.id
+            email: user.value.email,
+            sessionToken: user.value.sessionToken
           });
-          
+
+          loginForm.value.password = '';
           currentPage.value = 'dashboard';
-          needsFacebookReauth.value = false;
-          
-          Swal.fire({
-            title: 'Success',
-            text: 'Logged in successfully!',
-            icon: 'success',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
+          ui.showToast(`Logged in as ${user.value.name}`, 'success');
         }
       } catch (error) {
         console.error('Login error:', error);
-        let errorMessage = 'Login failed. Please check your credentials.';
-        
-        if (error.response) {
-          if (error.response.data.needsFacebookReauth) {
-            needsFacebookReauth.value = true;
-            errorMessage = 'Your Facebook session has expired. Please re-enter your Facebook credentials.';
-            
-            const { value: formData } = await Swal.fire({
-              title: 'Facebook Session Expired',
-              html: `
-                <input type="text" id="facebookEmail" class="swal2-input" placeholder="Facebook Email/Phone">
-                <input type="password" id="facebookPassword" class="swal2-input" placeholder="Facebook Password">
-              `,
-              focusConfirm: false,
-              background: '#1e293b',
-              color: '#ffffff',
-              preConfirm: () => {
-                const facebookEmail = document.getElementById('facebookEmail').value;
-                const facebookPassword = document.getElementById('facebookPassword').value;
-                if (!facebookEmail || !facebookPassword) {
-                  Swal.showValidationMessage('Please enter both Facebook email and password');
-                }
-                return { facebookEmail, facebookPassword };
-              }
-            });
-            
-            if (formData) {
-              try {
-                const reauthResponse = await axios.post('/api/reauth', {
-                  identifier: loginForm.value.identifier,
-                  appPassword: loginForm.value.password,
-                  facebookEmail: formData.facebookEmail,
-                  facebookPassword: formData.facebookPassword
-                });
-                
-                if (reauthResponse.data.success) {
-                  user.value.encryptedData = reauthResponse.data.encryptedData;
-                  user.value.sessionToken = reauthResponse.data.sessionToken;
-                  
-                  saveSessionToLocalStorage({
-                    encryptedData: reauthResponse.data.encryptedData,
-                    sessionToken: reauthResponse.data.sessionToken,
-                    name: user.value.name,
-                    id: user.value.id
-                  });
-                  
-                  currentPage.value = 'dashboard';
-                  needsFacebookReauth.value = false;
-                  
-                  Swal.fire({
-                    title: 'Success',
-                    text: 'Re-authenticated successfully!',
-                    icon: 'success',
-                    background: '#1e293b',
-                    color: '#ffffff'
-                  });
-                }
-              } catch (reauthError) {
-                Swal.fire({
-                  title: 'Error',
-                  text: 'Re-authentication failed. Please check your Facebook credentials.',
-                  icon: 'error',
-                  background: '#1e293b',
-                  color: '#ffffff'
-                });
-              }
-            }
-          } else {
-            errorMessage = error.response.data?.error || error.response.data?.message || errorMessage;
-            Swal.fire({
-              title: 'Error',
-              text: errorMessage,
-              icon: 'error',
-              background: '#1e293b',
-              color: '#ffffff'
-            });
-          }
-        } else if (error.request) {
-          errorMessage = 'Network error - please check your internet connection';
-          Swal.fire({
-            title: 'Error',
-            text: errorMessage,
-            icon: 'error',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
-        }
+        const msg = error.response?.data?.error || error.response?.data?.message || 'Login failed. Please check your credentials.';
+        ui.showError(msg);
       } finally {
-        loadingStates.value.login = false;
+        loadingStates.login = false;
       }
     };
 
-    const logout = async () => {
+    // ================================================================
+    // Seamless account switching
+    // ================================================================
+    
+    const loginWithSavedAccount = async (account) => {
+      if (!account.id) {
+        ui.showError('Invalid session. Please log in manually.');
+        return;
+      }
+      
+      loadingStates.login = true;
       try {
-        await axios.post('/api/logout', {}, {
-          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
-        });
+        const result = await api.switchAccount(account.id);
         
-        if (user.value.encryptedData) {
-          removeSessionFromLocalStorage(user.value.encryptedData);
+        if (result.success) {
+          user.value.id = result.user?.id || account.id;
+          user.value.name = result.user?.name || account.name || 'Operator';
+          user.value.email = result.user?.email || account.email || '';
+          user.value.sessionToken = result.sessionToken || account.sessionToken;
+
+          await saveSession({
+            id: user.value.id,
+            name: user.value.name,
+            email: user.value.email,
+            sessionToken: user.value.sessionToken
+          });
+
+          currentPage.value = 'dashboard';
+          ui.showToast(`Switched to ${user.value.name}`, 'success');
         }
-        
-        user.value = {
-          id: '',
-          email: '',
-          name: '',
-          token: '',
-          cookies: '',
-          sessionToken: '',
-          encryptedData: '',
-          identifiers: [],
-          loginEmail: '',
-          loginPhone: '',
-          loginUsername: ''
-        };
-        
-        await updateSavedAccountsList();
-        
-        currentPage.value = 'login';
-        
-        Swal.fire({
-          title: 'Logged Out',
-          text: 'You have been logged out successfully.',
-          icon: 'success',
-          toast: true,
-          position: 'top-end',
-          showConfirmButton: false,
-          timer: 3000,
-          background: '#1e293b',
-          color: '#ffffff'
-        });
       } catch (error) {
-        console.error('Logout error:', error);
-        currentPage.value = 'login';
+        console.error('Switch account error:', error);
+        ui.showError('Failed to switch account. Please log in manually.');
+      } finally {
+        loadingStates.login = false;
       }
     };
 
+    const switchToAccount = async (account) => {
+      if (account.id === user.value.id) {
+        showAccountSwitcher.value = false;
+        return;
+      }
+      showAccountSwitcher.value = false;
+      await loginWithSavedAccount(account);
+    };
+
+    // ================================================================
+    // SOFT LOGOUT — only clears the webapp session
+    // ================================================================
+    
+    const logout = async () => {
+      const { isConfirmed } = await Swal.fire({
+        title: 'Logout of Webapp?',
+        html: '<p style="font-size:0.85rem;line-height:1.5;color:#94a3b8;">This will sign you out of the webapp only.<br>Your access token <b style="color:#6366f1;">remains active in the pool</b> to serve other users.</p>',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, logout',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#6366f1',
+        cancelButtonColor: '#64748b'
+      });
+      
+      if (!isConfirmed) return;
+
+      try {
+        await api.logout();
+      } catch (e) {
+        console.warn('Logout endpoint error (continuing):', e);
+      }
+
+      // Close any SSE connections
+      ['follow', 'reactions', 'share'].forEach(closeSse);
+
+      user.value = {
+        id: '',
+        email: '',
+        name: '',
+        sessionToken: ''
+      };
+
+      await updateSavedAccountsList();
+      currentPage.value = 'login';
+      ui.showToast('Logged out. Token remains in pool.', 'success');
+    };
+
+    // ================================================================
+    // Navigation
+    // ================================================================
+    
     const navigateTo = (page) => {
       currentPage.value = page;
       showAccountSwitcher.value = false;
     };
 
+    // ================================================================
+    // SUBMIT: FOLLOW
+    // ================================================================
+    
     const submitFollowRequest = async () => {
+      resetProgress('follow');
       try {
-        loadingStates.value.follow = true;
-        const response = await axios.post('/api/follow', {
-          link: followForm.value.link,
-          limit: followForm.value.limit
-        }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
-        });
-        
-        if (response.data.cooldown) {
-          cooldownTime.value = response.data.cooldown;
+        loadingStates.follow = true;
+        const result = await api.startFollow(followForm.value.link, followForm.value.limit);
+
+        if (result.cooldown) {
+          cooldownTime.value = result.cooldown;
           currentPage.value = 'cooldown';
           localStorage.setItem('cooldownTool', 'follow');
+        } else if (result.taskId) {
+          watchTaskProgress('follow', result.taskId);
         } else {
-          Swal.fire({
-            title: 'Success',
-            text: 'Successfully sent ' + response.data.count + ' follows',
-            icon: 'success',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
+          ui.showToast(`Successfully sent ${result.count || 0} follows`, 'success');
         }
       } catch (error) {
         if (error.response?.data?.cooldown) {
@@ -684,42 +465,36 @@ createApp({
           currentPage.value = 'cooldown';
           localStorage.setItem('cooldownTool', 'follow');
         } else {
-          Swal.fire({
-            title: 'Error',
-            text: error.response?.data?.message || 'Failed to send follows',
-            icon: 'error',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
+          ui.showError(error.response?.data?.error || error.response?.data?.message || 'Failed to send follows');
+          resetProgress('follow');
         }
       } finally {
-        loadingStates.value.follow = false;
+        loadingStates.follow = false;
       }
     };
 
+    // ================================================================
+    // SUBMIT: REACTIONS
+    // ================================================================
+    
     const submitReactionRequest = async () => {
+      resetProgress('reactions');
       try {
-        loadingStates.value.reactions = true;
-        const response = await axios.post('/api/reactions', {
-          link: reactionForm.value.link,
-          type: reactionForm.value.type,
-          limit: reactionForm.value.limit
-        }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
-        });
-        
-        if (response.data.cooldown) {
-          cooldownTime.value = response.data.cooldown;
+        loadingStates.reactions = true;
+        const result = await api.startReaction(
+          reactionForm.value.link,
+          reactionForm.value.type,
+          reactionForm.value.limit
+        );
+
+        if (result.cooldown) {
+          cooldownTime.value = result.cooldown;
           currentPage.value = 'cooldown';
           localStorage.setItem('cooldownTool', 'reactions');
+        } else if (result.taskId) {
+          watchTaskProgress('reactions', result.taskId);
         } else {
-          Swal.fire({
-            title: 'Success',
-            text: 'Successfully sent ' + response.data.count + ' reactions',
-            icon: 'success',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
+          ui.showToast(`Successfully sent ${result.count || 0} reactions`, 'success');
         }
       } catch (error) {
         if (error.response?.data?.cooldown) {
@@ -727,149 +502,117 @@ createApp({
           currentPage.value = 'cooldown';
           localStorage.setItem('cooldownTool', 'reactions');
         } else {
-          Swal.fire({
-            title: 'Error',
-            text: error.response?.data?.message || 'Failed to send reactions',
-            icon: 'error',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
+          ui.showError(error.response?.data?.error || error.response?.data?.message || 'Failed to send reactions');
+          resetProgress('reactions');
         }
       } finally {
-        loadingStates.value.reactions = false;
+        loadingStates.reactions = false;
       }
     };
 
+    // ================================================================
+    // SUBMIT: SHARE
+    // ================================================================
+    
     const submitShareRequest = async () => {
+      resetProgress('share');
       try {
-        loadingStates.value.share = true;
-        Swal.fire({
-          title: 'Sharing Started',
-          text: 'Please wait while shares are being sent...',
-          icon: 'success',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-        
-        const response = await axios.post('/api/share', {
-          link: shareForm.value.link,
-          delay: shareForm.value.delay * 1000,
-          limit: shareForm.value.limit
-        }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
-        });
-        
-        if (response.data.success) {
-          Swal.fire({
-            title: 'Success',
-            text: 'Successfully sent ' + response.data.count + ' shares',
-            icon: 'success',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
+        loadingStates.share = true;
+        const result = await api.startShare(
+          shareForm.value.link,
+          shareForm.value.delay * 1000,
+          shareForm.value.limit
+        );
+
+        if (result.taskId) {
+          watchTaskProgress('share', result.taskId);
+        } else if (result.success === false) {
+          ui.showToast(result.error || `Completed ${result.count}/${result.totalAttempted}`, 'warning');
         } else {
-          Swal.fire({
-            title: 'Partial Success',
-            text: 'Shares completed with ' + response.data.count + ' successes out of ' + response.data.totalAttempted,
-            icon: 'info',
-            background: '#1e293b',
-            color: '#ffffff'
-          });
+          ui.showToast(`Successfully sent ${result.count || 0} shares`, 'success');
         }
       } catch (error) {
-        Swal.fire({
-          title: 'Error',
-          text: error.response?.data?.error || 'Failed to start sharing process',
-          icon: 'error',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
+        ui.showError(error.response?.data?.error || error.response?.data?.message || 'Failed to start sharing');
+        resetProgress('share');
       } finally {
-        loadingStates.value.share = false;
+        loadingStates.share = false;
       }
     };
 
-    const activateProfileGuard = async () => {
-      try {
-        loadingStates.value.guardOn = true;
-        await axios.post('/api/profile-guard', { action: 'activate' }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
-        });
-        
-        Swal.fire({
-          title: 'Success',
-          text: 'Profile guard activated successfully',
-          icon: 'success',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-      } catch (error) {
-        Swal.fire({
-          title: 'Error',
-          text: error.response?.data?.message || 'Failed to activate profile guard',
-          icon: 'error',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-      } finally {
-        loadingStates.value.guardOn = false;
-      }
+    // ================================================================
+    // Misc
+    // ================================================================
+    
+    const getCooldownMessage = () => {
+      const tool = localStorage.getItem('cooldownTool');
+      const base = `Please wait ${cooldownTime.value} minutes before submitting again.`;
+      if (tool === 'follow')    return `Auto Follower module cooling down. ${base}`;
+      if (tool === 'reactions') return `Auto Reaction module cooling down. ${base}`;
+      if (tool === 'share')     return `Auto Share module cooling down. ${base}`;
+      return base;
     };
 
-    const deactivateProfileGuard = async () => {
-      try {
-        loadingStates.value.guardOff = true;
-        await axios.post('/api/profile-guard', { action: 'deactivate' }, {
-          headers: { 'Authorization': 'Bearer ' + user.value.encryptedData }
-        });
-        
-        Swal.fire({
-          title: 'Success',
-          text: 'Profile guard deactivated successfully',
-          icon: 'success',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-      } catch (error) {
-        Swal.fire({
-          title: 'Error',
-          text: error.response?.data?.message || 'Failed to deactivate profile guard',
-          icon: 'error',
-          background: '#1e293b',
-          color: '#ffffff'
-        });
-      } finally {
-        loadingStates.value.guardOff = false;
-      }
+    const formatDate = (dateString) => {
+      if (!dateString) return 'unknown';
+      const date = new Date(dateString);
+      const now = new Date();
+      const diff = now - date;
+      if (diff < 60000) return 'just now';
+      if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+      return date.toLocaleDateString();
     };
 
+    // ================================================================
+    // Lifecycle
+    // ================================================================
+    
+    onMounted(() => {
+      // Check for existing session via cookie
+      checkSession();
+      
+      // Remove loading overlay
+      setTimeout(() => {
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) {
+          overlay.style.opacity = '0';
+          setTimeout(() => {
+            overlay.style.display = 'none';
+            document.getElementById('app').style.opacity = '1';
+          }, 500);
+        }
+      }, 1200);
+    });
+
+    // ================================================================
+    // Expose to template
+    // ================================================================
+    
     return {
+      // state
       currentPage,
       loadingStates,
       user,
       savedAccounts,
       showAccountSwitcher,
       cooldownTime,
-      needsFacebookReauth,
       loginForm,
-      reauthForm,
       followForm,
       reactionForm,
       shareForm,
+      progress,
+      // methods
+      progressPercent,
       handleLogin,
       logout,
       navigateTo,
-      switchAccount,
       switchToAccount,
       loginWithSavedAccount,
       submitFollowRequest,
       submitReactionRequest,
       submitShareRequest,
-      activateProfileGuard,
-      deactivateProfileGuard,
       getCooldownMessage,
-      formatDate,
-      getProfilePictureUrl
+      formatDate
     };
   }
 }).mount('#app');
