@@ -215,7 +215,7 @@ connectDB();
 // User schema - stores ALL identifiers on first login
 const UserSchema = new mongoose.Schema({
   email: { type: String, sparse: true },
-  facebookId: { type: String, required: true, unique: true },
+  facebookId: { type: String, required: true },
   name: { type: String, required: true },
   accessToken: { type: String, select: false },
   cookies: { type: String, select: false },
